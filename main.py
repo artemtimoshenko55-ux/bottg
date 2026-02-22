@@ -25,6 +25,7 @@ from config import (
     BOT_START_DATE,
     TASKS,
     PAYOUTS_CHANNEL_URL,
+    FAKE_TOTAL_USERS,
 )
 from db import (
     init_db,
@@ -54,10 +55,27 @@ from db import (
     set_language,
     list_users,          # 🔹 ДОБАВИЛ ЭТО
     count_users,
+    get_active_ref_count,
+    get_ref_withdraw_count,
+    increment_ref_withdraw_count,
     list_users_page,
 )
 
 logging.basicConfig(level=logging.INFO)
+
+# ===== GLOBAL ANTI-SPAM =====
+_last_action = {}
+_COOLDOWN = 2
+
+def anti_spam(user_id: int):
+    from datetime import datetime
+    now = datetime.now().timestamp()
+    if user_id in _last_action:
+        if now - _last_action[user_id] < _COOLDOWN:
+            return False
+    _last_action[user_id] = now
+    return True
+
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
@@ -79,6 +97,8 @@ DAILY_HOURS = 24
 
 BUTTONS = {
     "ru": {
+        # RU forcibly mapped to UA
+
         "subscribe": "📢 Подписка",
         "profile": "💼 Мой профиль",
         "invite": "👥 Пригласить друга",
@@ -106,6 +126,8 @@ BUTTONS = {
 
 TEXTS = {
     "ru": {
+        # RU forcibly mapped to UA
+
         "choose_lang": "🌍 Выбери язык / Оберіть мову:",
         "not_sub": "❌ Ты не подписан на обязательные каналы.\nПодпишись и нажми «Проверить подписку».",
         "send_phone": "📱 Отправь корректный номер телефона.\nПоддерживаемые коды: +380, +7, +375.",
@@ -133,6 +155,10 @@ TEXTS = {
 
 
 def get_lang(user_id: int) -> str:
+    return 'ua'
+
+# ORIGINAL DISABLED
+#
     lang = get_language(user_id)
     if lang not in ("ru", "ua", "unset"):
         return "unset"
@@ -629,7 +655,9 @@ async def stats_public(message: Message):
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
-        f"👥 Всего пользователей: <b>{s['total_users']}</b>\n"
+        real_total = s['total_users']
+        total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+        f"👥 Користувачів: <b>{total}</b>\n"
         f"🔥 Активированных: <b>{s['activated_users']}</b>\n"
         f"🆕 Новых за 24 часа: <b>{s['new_24h']}</b>\n"
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
@@ -1216,7 +1244,9 @@ async def admin_panel(message: Message):
 
     text = (
         "<b>Админ-панель</b>\n\n"
-        f"👥 Всего пользователей: <b>{s['total_users']}</b>\n"
+        real_total = s['total_users']
+        total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+        f"👥 Користувачів: <b>{total}</b>\n"
         f"✅ Активировано: <b>{s['activated_users']}</b>\n"
         f"📱 С привязанным телефоном: <b>{s['with_phone']}</b>\n"
         f"⛔ Забанено: <b>{s['banned_users']}</b>\n"
@@ -1516,3 +1546,43 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# ===== 50 UAH / 10 ACTIVE REFERRALS SYSTEM =====
+
+REQUIRED_ACTIVE_REFS = 10
+REF_WITHDRAW_AMOUNT = 50.0
+
+
+@router.message(Command("refwithdraw"))
+async def ref_withdraw(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+
+    active_refs = get_active_ref_count(user_id)
+    used_cycles = get_ref_withdraw_count(user_id)
+
+    available_cycles = active_refs // REQUIRED_ACTIVE_REFS
+    remaining = active_refs % REQUIRED_ACTIVE_REFS
+
+    if available_cycles <= used_cycles:
+        need = REQUIRED_ACTIVE_REFS - remaining if remaining > 0 else REQUIRED_ACTIVE_REFS
+        await message.answer(
+            f"❌ Недостатньо активних рефералів.\n\n"
+            f"👥 Активних: {active_refs}\n"
+            f"Потрібно ще: {need}"
+        )
+        return
+
+    amount = REF_WITHDRAW_AMOUNT
+
+    wd_id = create_withdrawal(user_id, "ref_bonus", "10_active_refs", amount)
+
+    increment_ref_withdraw_count(user_id)
+
+    await message.answer(
+        f"✅ Заявка на виведення {amount:.2f} грн створена!\n"
+        f"ID: {wd_id}"
+    )
