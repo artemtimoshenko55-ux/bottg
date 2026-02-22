@@ -1237,33 +1237,34 @@ async def wd_no(call: CallbackQuery):
 
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
-    """Главное админ-меню /admin"""
     if not user_is_admin(message.from_user.id):
         return
 
     s = get_stats()
-    days = (datetime.now(timezone.utc).date() - datetime.strptime(BOT_START_DATE, "%d.%m.%Y").date()).days
+    days = get_bot_days_running()
+
+    real_total = s["total_users"]
+    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
 
     text = (
         "<b>Админ-панель</b>\n\n"
-        real_total = s['total_users']
-        total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
         f"👥 Користувачів: <b>{total}</b>\n"
         f"✅ Активировано: <b>{s['activated_users']}</b>\n"
-        f"📱 С привязанным телефоном: <b>{s['with_phone']}</b>\n"
+        f"📱 С телефоном: <b>{s['with_phone']}</b>\n"
         f"⛔ Забанено: <b>{s['banned_users']}</b>\n"
         f"🆕 Новых за 24 часа: <b>{s['new_24h']}</b>\n"
-        f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})\n\n"
+        f"📅 Работает: <b>{days} дней</b>\n\n"
         "Команды:\n"
-        "/users — список пользователей\n"
-        "/ban id — бан\n"
-        "/unban id — разбан\n"
-        "/addbal id сумма — добавить баланс\n"
-        "/subbal id сумма — снять баланс\n"
-        "/msg id текст — написать пользователю\n"
-        "/all текст — рассылка всем\n"
-        "/pending — новые заявки на вывод\n"
+        "/users\n"
+        "/ban id\n"
+        "/unban id\n"
+        "/addbal id сумма\n"
+        "/subbal id сумма\n"
+        "/msg id текст\n"
+        "/all текст\n"
+        "/pending\n"
     )
+
     await message.answer(text)
 
 
