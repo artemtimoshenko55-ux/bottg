@@ -25,6 +25,7 @@ from config import (
     BOT_START_DATE,
     TASKS,
     PAYOUTS_CHANNEL_URL,
+    FAKE_TOTAL_USERS,
 )
 from db import (
     init_db,
@@ -108,6 +109,7 @@ BUTTONS = {
         "top": "🏆 Топ рефералов",
         "rules": "📜 Правила",
         "payouts": "💸 Канал с выплатами",
+        "ref50": "💸 50 грн",
     },
     "ua": {
         "subscribe": "📢 Підписка",
@@ -120,6 +122,7 @@ BUTTONS = {
         "top": "🏆 Топ рефералів",
         "rules": "📜 Правила",
         "payouts": "💸 Канал с выплатами",
+        "ref50": "💸 50 грн",
     },
 }
 
@@ -250,6 +253,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
         [KeyboardButton(text=b['invite'])],
         [KeyboardButton(text=b['daily']), KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['withdraw'])],
+        [KeyboardButton(text=b['ref50'])],
         [KeyboardButton(text=b['tasks'])],
         [KeyboardButton(text=b['top']), KeyboardButton(text=b['rules'])],
         [KeyboardButton(text=b['payouts'])],
@@ -454,7 +458,7 @@ async def try_qualify_referral(user_id: int):
         return
 
     try:
-        add_balance(ref, REF_BONUS)
+        # referral bonus disabled
     except Exception:
         return
 
@@ -653,7 +657,7 @@ async def stats_public(message: Message):
     days = get_bot_days_running()
 
     real_total = s["total_users"]
-    total = real_total
+    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
@@ -1184,6 +1188,9 @@ async def wd_ok(call: CallbackQuery):
     tg_id = wd[1]
     amount = wd[4]
 
+    if wd[2] == 'ref_bonus':
+        increment_ref_withdraw_count(tg_id)
+
     await call.answer("✔️ Выплата одобрена")
     try:
         await call.message.edit_text(f"✔️ Выплата подтверждена (ID {wd_id})")
@@ -1243,7 +1250,7 @@ async def admin_panel(message: Message):
     days = get_bot_days_running()
 
     real_total = s["total_users"]
-    total = real_total
+    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
 
     text = (
         "<b>Админ-панель</b>\n\n"
@@ -1536,6 +1543,44 @@ async def admin_pending(message: Message):
     lines.append("\nℹ️ Обрабатывай заявки через кнопки под сообщениями бота с заявками.")
     await message.answer("\n".join(lines))
 
+
+
+
+
+# ===== 50 UAH / 10 ACTIVE REFERRALS SYSTEM =====
+
+REQUIRED_ACTIVE_REFS = 10
+REF_WITHDRAW_AMOUNT = 50.0
+
+@router.message(F.text.in_([BUTTONS["ru"]["ref50"], BUTTONS["ua"]["ref50"]]))
+async def ref50_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+
+    active_refs = get_active_ref_count(user_id)
+    used_cycles = get_ref_withdraw_count(user_id)
+
+    available_cycles = active_refs // REQUIRED_ACTIVE_REFS
+
+    if available_cycles <= used_cycles:
+        remaining = REQUIRED_ACTIVE_REFS - (active_refs % REQUIRED_ACTIVE_REFS)
+        if remaining == REQUIRED_ACTIVE_REFS:
+            remaining = REQUIRED_ACTIVE_REFS
+
+        await message.answer(
+            f"❌ Недостатньо активних рефералів.\n\n"
+            f"👥 Активних: {active_refs}\n"
+            f"Потрібно ще: {remaining}"
+        )
+        return
+
+    wd_id = create_withdrawal(user_id, "ref_bonus", "50_uah_cycle", REF_WITHDRAW_AMOUNT)
+
+    await message.answer(
+        f"✅ Заявка на 50 грн створена!\nID: {wd_id}"
+    )
 
 
 # ============ СТАРТ БОТА ============
