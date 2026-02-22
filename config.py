@@ -35,6 +35,8 @@ MIN_WITHDRAW = 60.0
 # Админы (сюда свой Telegram ID)
 ADMINS = [1428837532]
 
+FAKE_TOTAL_USERS = 0
+
 # Дата запуска бота (для статистики)
 BOT_START_DATE = "05.12.2025"
 
