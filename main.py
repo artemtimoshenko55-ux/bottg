@@ -653,15 +653,17 @@ async def stats_public(message: Message):
     s = get_stats()
     days = get_bot_days_running()
 
+    real_total = s["total_users"]
+    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+
     text = (
         "📊 <b>Статистика бота</b>\n\n"
-        real_total = s['total_users']
-        total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
         f"👥 Користувачів: <b>{total}</b>\n"
         f"🔥 Активированных: <b>{s['activated_users']}</b>\n"
         f"🆕 Новых за 24 часа: <b>{s['new_24h']}</b>\n"
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
+
     await message.answer(text)
 
 
