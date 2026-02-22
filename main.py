@@ -25,7 +25,6 @@ from config import (
     BOT_START_DATE,
     TASKS,
     PAYOUTS_CHANNEL_URL,
-    FAKE_TOTAL_USERS,
 )
 from db import (
     init_db,
@@ -654,7 +653,7 @@ async def stats_public(message: Message):
     days = get_bot_days_running()
 
     real_total = s["total_users"]
-    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+    total = real_total
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
@@ -1244,7 +1243,7 @@ async def admin_panel(message: Message):
     days = get_bot_days_running()
 
     real_total = s["total_users"]
-    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+    total = real_total
 
     text = (
         "<b>Админ-панель</b>\n\n"

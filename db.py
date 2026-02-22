@@ -56,8 +56,8 @@ def init_db():
     _ensure_column(cur, "users", "phone TEXT")
     _ensure_column(cur, "users", "created_at TEXT")
     _ensure_column(cur, "users", "last_bonus_at TEXT")
-    _ensure_column(cur, "users", "banned INTEGER DEFAULT 0,
-            ref_withdraw_count INTEGER DEFAULT 0")
+    _ensure_column(cur, "users", "banned INTEGER DEFAULT 0")
+    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance DOUBLE PRECISION DEFAULT 0")
     _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
 
