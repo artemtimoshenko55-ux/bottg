@@ -458,7 +458,7 @@ async def try_qualify_referral(user_id: int):
         return
 
     try:
-        # referral bonus disabled
+        pass
     except Exception:
         return
 
