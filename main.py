@@ -107,8 +107,8 @@ BUTTONS = {
         "withdraw": "💸 Вывод средств",
         "tasks": "📝 Задания",
         "top": "🏆 Топ рефералов",
-        "rules": "📜 Правила",
-        "payouts": "💸 Канал с выплатами",
+        
+        
         "ref50": "💸 50 грн",
     },
     "ua": {
@@ -120,8 +120,8 @@ BUTTONS = {
         "withdraw": "💸 Виведення коштів",
         "tasks": "📝 Завдання",
         "top": "🏆 Топ рефералів",
-        "rules": "📜 Правила",
-        "payouts": "💸 Канал с выплатами",
+        
+        
         "ref50": "💸 50 грн",
     },
 }
@@ -255,8 +255,8 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
         [KeyboardButton(text=b['withdraw'])],
         [KeyboardButton(text=b['ref50'])],
         [KeyboardButton(text=b['tasks'])],
-        [KeyboardButton(text=b['top']), KeyboardButton(text=b['rules'])],
-        [KeyboardButton(text=b['payouts'])],
+        [KeyboardButton(text=b['top'])],
+        
     ]
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
 
@@ -590,11 +590,11 @@ async def my_profile(message: Message):
     ref_link = f"https://t.me/{me.username}?start={user_id}"
 
     text = (
-        "👤 <b>Твой профиль</b>\n\n"
-        f"💰 Баланс: <b>{fmt_money(bal)}</b>\n"
+        "👤 <b>Твій профіль</b>\n\n"
+        f" <b>{fmt_money(bal)}</b>\n"
                 f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
         f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание — "
-        f"ты получаешь <b>{fmt_money(REF_BONUS)}</b>."
+        f"ти отримуєш активного реферала."
     )
     await message.answer(text)
 
@@ -609,9 +609,9 @@ async def invite_friend(message: Message):
     ref_link = f"https://t.me/{me.username}?start={user_id}"
 
     await message.answer(
-        "Отправь эту ссылку друзьям:\n"
+        "Надішли це посилання друзям:\n"
         f"<code>{ref_link}</code>\n\n"
-        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание, ты получишь <b>{fmt_money(REF_BONUS)}</b>.",
+        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание, ти отримаєш активного реферала.",
     )
 
 
@@ -657,7 +657,7 @@ async def stats_public(message: Message):
     days = get_bot_days_running()
 
     real_total = s["total_users"]
-    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+    total = real_total
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
@@ -959,286 +959,6 @@ async def task_no(call: CallbackQuery):
         pass
 
 
-# ============ ВЫВОД СРЕДСТВ ============
-
-@router.message(F.text.in_([BUTTONS["ru"]["withdraw"], BUTTONS["ua"]["withdraw"]]))
-async def start_withdraw(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-    bal = get_balance(user_id)
-
-    if bal < MIN_WITHDRAW:
-        await message.answer(
-            f"Минимальная сумма для вывода — <b>{fmt_money(MIN_WITHDRAW)}</b>.\n"
-            f"Твой баланс: <b>{fmt_money(bal)}</b>."
-        )
-        return
-
-    await message.answer(
-        f"На балансе: <b>{fmt_money(bal)}</b>\n"
-        "Выбери способ вывода 👇",
-        reply_markup=withdraw_method_keyboard(),
-    )
-
-
-@router.callback_query(F.data.startswith("wd_method:"))
-async def choose_withdraw_method(call: CallbackQuery):
-    user_id = call.from_user.id
-
-    if is_banned(user_id):
-        await call.message.answer("🚫 Ты заблокирован в боте.")
-        await call.answer()
-        return
-
-    if not await is_subscribed(user_id):
-        await call.message.answer(
-            "❌ Ты не подписан на обязательные каналы.",
-            reply_markup=subscribe_keyboard(),
-        )
-        await call.answer()
-        return
-
-    method = call.data.split(":", 1)[1]
-    bal = get_balance(user_id)
-
-    if bal < MIN_WITHDRAW:
-        await call.message.answer(
-            f"Минимальная сумма для вывода — <b>{fmt_money(MIN_WITHDRAW)}</b>.\n"
-            f"Твой баланс: <b>{fmt_money(bal)}</b>."
-        )
-        await call.answer()
-        return
-
-    pending_withdraw[user_id] = {"method": method}
-    user_state[user_id] = "waiting_amount"
-
-    await call.message.answer(
-        f"Баланс: <b>{fmt_money(bal)}</b>\n"
-        f"Введи сумму для вывода (от {fmt_money(MIN_WITHDRAW)}):"
-    )
-    await call.answer()
-
-
-@router.message(lambda m: user_state.get(m.from_user.id) is not None)
-async def withdraw_states(message: Message):
-    user_id = message.from_user.id
-    state = user_state.get(user_id)
-    text = (message.text or "").strip()
-
-    if not await ensure_full_access(message):
-        user_state.pop(user_id, None)
-        pending_withdraw.pop(user_id, None)
-        return
-
-    if state == "waiting_amount":
-        try:
-            amount = float(text.replace(",", "."))
-        except ValueError:
-            await message.answer("❌ Введи сумму числом, например 50 или 75.5")
-            return
-
-        bal = get_balance(user_id)
-        if amount < MIN_WITHDRAW:
-            await message.answer(
-                f"Минимальная сумма для вывода — <b>{fmt_money(MIN_WITHDRAW)}</b>."
-            )
-            return
-        if amount > bal:
-            await message.answer(
-                f"❌ Недостаточно средств.\nТвой баланс: <b>{fmt_money(bal)}</b>."
-            )
-            return
-
-        pending_withdraw.setdefault(user_id, {})
-        pending_withdraw[user_id]["amount"] = amount
-
-        method = pending_withdraw[user_id].get("method")
-        if method == "card":
-            user_state[user_id] = "waiting_card"
-            await message.answer("Введи номер карты (16 цифр, можно с пробелами):")
-        elif method == "crypto":
-            user_state[user_id] = "waiting_crypto"
-            await message.answer("Введи данные для вывода на криптобот:")
-        else:
-            await message.answer("Ошибка состояния. Попробуй начать вывод заново.")
-            user_state.pop(user_id, None)
-            pending_withdraw.pop(user_id, None)
-
-        return
-
-    if state == "waiting_card":
-        card_raw = text.replace(" ", "")
-        if not card_raw.isdigit() or len(card_raw) != 16:
-            await message.answer("❌ Номер карты должен содержать 16 цифр.")
-            return
-
-        data = pending_withdraw.get(user_id)
-        if not data or "amount" not in data:
-            await message.answer("Ошибка состояния. Попробуй снова начать вывод.")
-            user_state.pop(user_id, None)
-            pending_withdraw.pop(user_id, None)
-            return
-
-        amount = data["amount"]
-        add_balance(user_id, -amount)
-
-        wd_id = create_withdrawal(user_id, "card", card_raw, amount)
-
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✔️ Одобрить", callback_data=f"wd_ok:{wd_id}"),
-                    InlineKeyboardButton(text="❌ Отклонить", callback_data=f"wd_no:{wd_id}"),
-                ]
-            ]
-        )
-
-        await message.answer(
-            f"🔄 Заявка на вывод <b>{fmt_money(amount)}</b> отправлена админу!\n"
-            f"ID: <code>{wd_id}</code>"
-        )
-
-        for adm in ADMINS:
-            try:
-                await bot.send_message(
-                    adm,
-                    f"💸 <b>Новая заявка на вывод</b>\n"
-                    f"ID: {wd_id}\n"
-                    f"Пользователь: <code>{user_id}</code>\n"
-                    f"Метод: карта\n"
-                    f"Карта: <code>{card_raw}</code>\n"
-                    f"Сумма: <b>{fmt_money(amount)}</b>",
-                    reply_markup=kb,
-                )
-            except Exception:
-                pass
-
-        user_state.pop(user_id, None)
-        pending_withdraw.pop(user_id, None)
-        return
-
-    if state == "waiting_crypto":
-        details = text.strip()
-        if len(details) < 5:
-            await message.answer("❌ Введи корректные данные для криптобота.")
-            return
-
-        data = pending_withdraw.get(user_id)
-        if not data or "amount" not in data:
-            await message.answer("Ошибка состояния. Попробуй снова начать вывод.")
-            user_state.pop(user_id, None)
-            pending_withdraw.pop(user_id, None)
-            return
-
-        amount = data["amount"]
-        add_balance(user_id, -amount)
-
-        wd_id = create_withdrawal(user_id, "crypto", details, amount)
-
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✔️ Одобрить", callback_data=f"wd_ok:{wd_id}"),
-                    InlineKeyboardButton(text="❌ Отклонить", callback_data=f"wd_no:{wd_id}"),
-                ]
-            ]
-        )
-
-        await message.answer(
-            f"🔄 Заявка на вывод <b>{fmt_money(amount)}</b> отправлена админу!\n"
-            f"ID: <code>{wd_id}</code>"
-        )
-
-        for adm in ADMINS:
-            try:
-                await bot.send_message(
-                    adm,
-                    f"💸 <b>Новая заявка на вывод</b>\n"
-                    f"ID: {wd_id}\n"
-                    f"Пользователь: <code>{user_id}</code>\n"
-                    f"Метод: криптобот\n"
-                    f"Реквизиты: <code>{details}</code>\n"
-                    f"Сумма: <b>{fmt_money(amount)}</b>",
-                    reply_markup=kb,
-                )
-            except Exception:
-                pass
-
-        user_state.pop(user_id, None)
-        pending_withdraw.pop(user_id, None)
-        return
-
-
-@router.callback_query(F.data.startswith("wd_ok:"))
-async def wd_ok(call: CallbackQuery):
-    if call.from_user.id not in ADMINS:
-        await call.answer("Не админ", show_alert=True)
-        return
-
-    wd_id = int(call.data.split(":", 1)[1])
-    wd = get_withdraw(wd_id)
-    if not wd:
-        await call.answer("❌ Заявка не найдена", show_alert=True)
-        return
-
-    set_withdraw_status(wd_id, "approved")
-
-    tg_id = wd[1]
-    amount = wd[4]
-
-    if wd[2] == 'ref_bonus':
-        increment_ref_withdraw_count(tg_id)
-
-    await call.answer("✔️ Выплата одобрена")
-    try:
-        await call.message.edit_text(f"✔️ Выплата подтверждена (ID {wd_id})")
-    except Exception:
-        pass
-
-    try:
-        await bot.send_message(
-            tg_id,
-            f"🎉 Твоя выплата <b>{fmt_money(amount)}</b> одобрена и скоро будет отправлена!"
-        )
-    except Exception:
-        pass
-
-
-@router.callback_query(F.data.startswith("wd_no:"))
-async def wd_no(call: CallbackQuery):
-    if call.from_user.id not in ADMINS:
-        await call.answer("Не админ", show_alert=True)
-        return
-
-    wd_id = int(call.data.split(":", 1)[1])
-    wd = get_withdraw(wd_id)
-    if not wd:
-        await call.answer("❌ Заявка не найдена", show_alert=True)
-        return
-
-    tg_id = wd[1]
-    amount = wd[4]
-
-    set_withdraw_status(wd_id, "rejected")
-
-    await call.answer("❌ Выплата отклонена")
-    try:
-        await call.message.edit_text(f"❌ Выплата отклонена (ID {wd_id})")
-    except Exception:
-        pass
-
-    try:
-        await bot.send_message(
-            tg_id,
-            "❌ Твоя заявка на вывод была отклонена администрацией.\n"
-            "<i>Средства не возвращаются.</i>"
-        )
-    except Exception:
-        pass
-
-
 # ============ АДМИН-КОМАНДЫ ============
 
 @router.message(Command("admin"))
@@ -1250,7 +970,7 @@ async def admin_panel(message: Message):
     days = get_bot_days_running()
 
     real_total = s["total_users"]
-    total = FAKE_TOTAL_USERS if FAKE_TOTAL_USERS > real_total else real_total
+    total = real_total
 
     text = (
         "<b>Админ-панель</b>\n\n"
