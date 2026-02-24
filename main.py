@@ -25,7 +25,6 @@ from config import (
     BOT_START_DATE,
     TASKS,
     PAYOUTS_CHANNEL_URL,
-    FAKE_TOTAL_USERS,
 )
 from db import (
     init_db,
@@ -104,11 +103,8 @@ BUTTONS = {
         "invite": "👥 Пригласить друга",
         "daily": "🎁 Ежедневный бонус",
         "stats": "📊 Статистика",
-        "withdraw": "💸 Вывод средств",
         "tasks": "📝 Задания",
         "top": "🏆 Топ рефералов",
-        
-        
         "ref50": "💸 50 грн",
     },
     "ua": {
@@ -117,11 +113,8 @@ BUTTONS = {
         "invite": "👥 Запросити друга",
         "daily": "🎁 Щоденний бонус",
         "stats": "📊 Статистика",
-        "withdraw": "💸 Виведення коштів",
         "tasks": "📝 Завдання",
         "top": "🏆 Топ рефералів",
-        
-        
         "ref50": "💸 50 грн",
     },
 }
@@ -190,7 +183,7 @@ notified_channels: set[str] = set()
 # ============ ХЕЛПЕРЫ ============
 
 def fmt_money(amount: float) -> str:
-    return f"{amount:.2f} грн (~{amount / USD_RATE:.2f} $)"
+    return f"{amount:.2f} грн"
 
 
 
@@ -252,11 +245,10 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
         [KeyboardButton(text=b['profile'])],
         [KeyboardButton(text=b['invite'])],
         [KeyboardButton(text=b['daily']), KeyboardButton(text=b['stats'])],
-        [KeyboardButton(text=b['withdraw'])],
         [KeyboardButton(text=b['ref50'])],
         [KeyboardButton(text=b['tasks'])],
-        [KeyboardButton(text=b['top'])],
-        
+        [KeyboardButton(text=b['top']),],
+
     ]
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
 
@@ -281,24 +273,6 @@ def subscribe_keyboard() -> InlineKeyboardMarkup:
 
 # ============ КАНАЛ С ВЫПЛАТАМИ ============
 
-def payouts_inline_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💸 Перейти в канал выплат", url=PAYOUTS_CHANNEL_URL)]
-        ]
-    )
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["payouts"], BUTTONS["ua"]["payouts"]]))
-async def payouts_channel_button(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    await message.answer(
-        "💸 Все выплаты публикуются в нашем канале 👇",
-        reply_markup=payouts_inline_keyboard(),
-        disable_web_page_preview=True,
-    )
 def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -585,16 +559,14 @@ async def my_profile(message: Message):
         return
 
     user_id = message.from_user.id
-    bal = get_balance(user_id)
     me = await bot.get_me()
     ref_link = f"https://t.me/{me.username}?start={user_id}"
 
     text = (
         "👤 <b>Твій профіль</b>\n\n"
-        f" <b>{fmt_money(bal)}</b>\n"
-                f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
-        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание — "
-        f"ти отримуєш активного реферала."
+        f"👥 Реферальне посилання:\n<code>{ref_link}</code>\n\n"
+        "За кожного друга, який забере бонус і виконає хоча б 1 завдання — "
+        "ти отримуєш активного реферала."
     )
     await message.answer(text)
 
@@ -609,10 +581,11 @@ async def invite_friend(message: Message):
     ref_link = f"https://t.me/{me.username}?start={user_id}"
 
     await message.answer(
-        "Надішли це посилання друзям:\n"
-        f"<code>{ref_link}</code>\n\n"
-        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание, ти отримаєш активного реферала.",
-    )
+    "Надішли це посилання друзям:\n"
+    f"<code>{ref_link}</code>\n\n"
+    "За кожного друга, який забере бонус і виконає хоча б 1 завдання — "
+    "ти отримуєш активного реферала.",
+)
 
 
 @router.message(F.text.in_([BUTTONS["ru"]["daily"], BUTTONS["ua"]["daily"]]))
@@ -656,8 +629,7 @@ async def stats_public(message: Message):
     s = get_stats()
     days = get_bot_days_running()
 
-    real_total = s["total_users"]
-    total = real_total
+    total = s["total_users"]
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
@@ -701,7 +673,6 @@ async def top_referrals(message: Message):
 
     lines = ["🏆 <b>Топ рефералов</b>\n"]
     for i, (ref_id, cnt) in enumerate(top, start=1):
-        earned = cnt * REF_BONUS
         name = f"<code>{ref_id}</code>"
         try:
             chat = await bot.get_chat(ref_id)
@@ -709,7 +680,7 @@ async def top_referrals(message: Message):
                 name = f"@{chat.username}"
         except Exception:
             pass
-        lines.append(f"{i}. {name} — {cnt} реф. — заработал <b>{fmt_money(earned)}</b>")
+        lines.append(f"{i}. {name} — {cnt} активних рефералів")
 
     await message.answer("\n".join(lines))
 
@@ -959,6 +930,8 @@ async def task_no(call: CallbackQuery):
         pass
 
 
+# ============ ВЫВОД СРЕДСТВ ============
+
 # ============ АДМИН-КОМАНДЫ ============
 
 @router.message(Command("admin"))
@@ -969,8 +942,7 @@ async def admin_panel(message: Message):
     s = get_stats()
     days = get_bot_days_running()
 
-    real_total = s["total_users"]
-    total = real_total
+    total = FAKE_STATS_OVERRIDE if FAKE_STATS_OVERRIDE else s["total_users"]
 
     text = (
         "<b>Админ-панель</b>\n\n"
@@ -992,6 +964,26 @@ async def admin_panel(message: Message):
     )
 
     await message.answer(text)
+
+FAKE_STATS_OVERRIDE = None
+
+@router.message(Command("setstats"))
+async def set_stats(message: Message):
+    global FAKE_STATS_OVERRIDE
+
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Використання: /setstats 5000")
+        return
+
+    try:
+        FAKE_STATS_OVERRIDE = int(parts[1])
+        await message.answer(f"✅ Статистика встановлена: {FAKE_STATS_OVERRIDE}")
+    except:
+        await message.answer("Невірне число.")
 
 
 @router.message(Command("users"))
@@ -1321,35 +1313,3 @@ REQUIRED_ACTIVE_REFS = 10
 REF_WITHDRAW_AMOUNT = 50.0
 
 
-@router.message(Command("refwithdraw"))
-async def ref_withdraw(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-
-    active_refs = get_active_ref_count(user_id)
-    used_cycles = get_ref_withdraw_count(user_id)
-
-    available_cycles = active_refs // REQUIRED_ACTIVE_REFS
-    remaining = active_refs % REQUIRED_ACTIVE_REFS
-
-    if available_cycles <= used_cycles:
-        need = REQUIRED_ACTIVE_REFS - remaining if remaining > 0 else REQUIRED_ACTIVE_REFS
-        await message.answer(
-            f"❌ Недостатньо активних рефералів.\n\n"
-            f"👥 Активних: {active_refs}\n"
-            f"Потрібно ще: {need}"
-        )
-        return
-
-    amount = REF_WITHDRAW_AMOUNT
-
-    wd_id = create_withdrawal(user_id, "ref_bonus", "10_active_refs", amount)
-
-    increment_ref_withdraw_count(user_id)
-
-    await message.answer(
-        f"✅ Заявка на виведення {amount:.2f} грн створена!\n"
-        f"ID: {wd_id}"
-    )
