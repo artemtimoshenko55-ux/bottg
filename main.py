@@ -1274,6 +1274,70 @@ async def ref50_handler(message: Message):
     )
 
 
+
+
+# ===== ADMIN MANUAL REF CYCLE CONTROL =====
+
+@router.message(Command("addref"))
+async def admin_addref(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.answer("Використання: /addref 123456789 3")
+        return
+
+    try:
+        tg_id = int(parts[1])
+        count = int(parts[2])
+    except:
+        await message.answer("ID та кількість повинні бути числами.")
+        return
+
+    for _ in range(max(0, count)):
+        increment_ref_withdraw_count(tg_id)
+
+    await message.answer(
+        f"✅ Користувачу <code>{tg_id}</code> додано {count} реф-циклів."
+    )
+
+
+@router.message(Command("setref"))
+async def admin_setref(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.answer("Використання: /setref 123456789 5")
+        return
+
+    try:
+        tg_id = int(parts[1])
+        value = int(parts[2])
+    except:
+        await message.answer("ID та значення повинні бути числами.")
+        return
+
+    current = get_ref_withdraw_count(tg_id)
+
+    if value <= current:
+        await message.answer(
+            "⚠️ Зменшення циклів напряму не підтримується. "
+            "Можна лише додавати через /addref."
+        )
+        return
+
+    diff = value - current
+    for _ in range(diff):
+        increment_ref_withdraw_count(tg_id)
+
+    await message.answer(
+        f"✅ Користувачу <code>{tg_id}</code> встановлено {value} реф-циклів."
+    )
+
+
 # ============ СТАРТ БОТА ============
 
 async def main():
