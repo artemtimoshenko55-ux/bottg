@@ -439,10 +439,9 @@ async def try_qualify_referral(user_id: int):
     # Уведомление рефереру (не критично)
     try:
         await bot.send_message(
-            ref,
-            f"✅ У тебя новый активный реферал: <code>{user_id}</code>\n"
-            f"Начислено: <b>{fmt_money(REF_BONUS)}</b>."
-        )
+    ref,
+    f"✅ У тебе новий активний реферал: <code>{user_id}</code>"
+)
     except Exception:
         pass
 
@@ -640,26 +639,6 @@ async def stats_public(message: Message):
     )
 
     await message.answer(text)
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["rules"], BUTTONS["ua"]["rules"]]))
-async def rules(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    text = (
-        "📜 <b>Правила бота</b>\n\n"
-        "❗ Запрещено:\n"
-        "— Создавать много аккаунтов (мультиаккаунты)\n"
-        "— Использовать фейки и виртуалки\n"
-        "— Отправлять поддельные скрины\n"
-        "— Абузить задания и реферальную систему\n"
-        "— Отписываться от спонсорских каналов после выплат\n\n"
-        "Админ может отклонить выплату или заблокировать аккаунт без объяснения причин.\n\n"
-        "Используя бот, ты автоматически соглашаешься с этими правилами ✅"
-    )
-    await message.answer(text)
-
 
 @router.message(F.text.in_([BUTTONS["ru"]["top"], BUTTONS["ua"]["top"]]))
 async def top_referrals(message: Message):
@@ -1309,7 +1288,5 @@ if __name__ == "__main__":
 
 # ===== 50 UAH / 10 ACTIVE REFERRALS SYSTEM =====
 
-REQUIRED_ACTIVE_REFS = 10
-REF_WITHDRAW_AMOUNT = 50.0
 
 
