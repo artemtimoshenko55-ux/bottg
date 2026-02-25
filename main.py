@@ -57,6 +57,8 @@ from db import (
     get_active_ref_count,
     get_ref_withdraw_count,
     increment_ref_withdraw_count,
+    get_fake_total,
+    set_fake_total,
     list_users_page,
 )
 
@@ -628,7 +630,8 @@ async def stats_public(message: Message):
     s = get_stats()
     days = get_bot_days_running()
 
-    total = s["total_users"]
+    fake = get_fake_total()
+    total = fake if fake > 0 else s["total_users"]
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
@@ -921,7 +924,8 @@ async def admin_panel(message: Message):
     s = get_stats()
     days = get_bot_days_running()
 
-    total = FAKE_STATS_OVERRIDE if FAKE_STATS_OVERRIDE else s["total_users"]
+    fake = get_fake_total()
+    total = fake if fake > 0 else s["total_users"]
 
     text = (
         "<b>Админ-панель</b>\n\n"
@@ -944,25 +948,28 @@ async def admin_panel(message: Message):
 
     await message.answer(text)
 
-FAKE_STATS_OVERRIDE = None
+
+
 
 @router.message(Command("setstats"))
 async def set_stats(message: Message):
-    global FAKE_STATS_OVERRIDE
-
     if not user_is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
         return
 
     parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer("Використання: /setstats 5000")
+    if len(parts) != 2:
+        await message.answer("Использование: /setstats 5000")
         return
 
     try:
-        FAKE_STATS_OVERRIDE = int(parts[1])
-        await message.answer(f"✅ Статистика встановлена: {FAKE_STATS_OVERRIDE}")
-    except:
-        await message.answer("Невірне число.")
+        value = int(parts[1])
+        if value < 0:
+            value = 0
+        set_fake_total(value)
+        await message.answer(f"✅ Статистика установлена: {value}")
+    except ValueError:
+        await message.answer("❌ Нужно указать число.")
 
 
 @router.message(Command("users"))
@@ -1271,70 +1278,6 @@ async def ref50_handler(message: Message):
 
     await message.answer(
         f"✅ Заявка на 50 грн створена!\nID: {wd_id}"
-    )
-
-
-
-
-# ===== ADMIN MANUAL REF CYCLE CONTROL =====
-
-@router.message(Command("addref"))
-async def admin_addref(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) < 3:
-        await message.answer("Використання: /addref 123456789 3")
-        return
-
-    try:
-        tg_id = int(parts[1])
-        count = int(parts[2])
-    except:
-        await message.answer("ID та кількість повинні бути числами.")
-        return
-
-    for _ in range(max(0, count)):
-        increment_ref_withdraw_count(tg_id)
-
-    await message.answer(
-        f"✅ Користувачу <code>{tg_id}</code> додано {count} реф-циклів."
-    )
-
-
-@router.message(Command("setref"))
-async def admin_setref(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) < 3:
-        await message.answer("Використання: /setref 123456789 5")
-        return
-
-    try:
-        tg_id = int(parts[1])
-        value = int(parts[2])
-    except:
-        await message.answer("ID та значення повинні бути числами.")
-        return
-
-    current = get_ref_withdraw_count(tg_id)
-
-    if value <= current:
-        await message.answer(
-            "⚠️ Зменшення циклів напряму не підтримується. "
-            "Можна лише додавати через /addref."
-        )
-        return
-
-    diff = value - current
-    for _ in range(diff):
-        increment_ref_withdraw_count(tg_id)
-
-    await message.answer(
-        f"✅ Користувачу <code>{tg_id}</code> встановлено {value} реф-циклів."
     )
 
 

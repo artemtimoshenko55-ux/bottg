@@ -91,6 +91,15 @@ def init_db():
         """
     )
 
+    # Settings table (fake stats)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -557,6 +566,33 @@ def increment_ref_withdraw_count(tg_id):
     cur.execute(
         "UPDATE users SET ref_withdraw_count = COALESCE(ref_withdraw_count,0) + 1 WHERE tg_id=%s",
         (tg_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------- SETTINGS (FAKE STATS) ----------
+
+def get_fake_total():
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM settings WHERE key='fake_total_users'")
+    row = cur.fetchone()
+    conn.close()
+    return int(row[0]) if row and row[0] else 0
+
+
+def set_fake_total(value: int):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO settings (key, value)
+        VALUES ('fake_total_users', %s)
+        ON CONFLICT (key)
+        DO UPDATE SET value = EXCLUDED.value
+        """,
+        (str(value),),
     )
     conn.commit()
     conn.close()
