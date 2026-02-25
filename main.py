@@ -57,6 +57,8 @@ from db import (
     get_active_ref_count,
     get_ref_withdraw_count,
     increment_ref_withdraw_count,
+    set_manual_refs,
+    add_manual_refs,
     get_fake_total,
     set_fake_total,
     list_users_page,
@@ -1280,6 +1282,51 @@ async def ref50_handler(message: Message):
         f"✅ Заявка на 50 грн створена!\nID: {wd_id}"
     )
 
+
+
+
+# ===== ADMIN MANUAL ACTIVE REF CONTROL =====
+
+@router.message(Command("addref"))
+async def admin_addref(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("Використання: /addref 123456789 5")
+        return
+
+    try:
+        tg_id = int(parts[1])
+        count = int(parts[2])
+    except:
+        await message.answer("ID та кількість повинні бути числами.")
+        return
+
+    add_manual_refs(tg_id, count)
+    await message.answer(f"✅ Додано {count} активних рефералів користувачу {tg_id}")
+
+
+@router.message(Command("setref"))
+async def admin_setref(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("Використання: /setref 123456789 10")
+        return
+
+    try:
+        tg_id = int(parts[1])
+        value = int(parts[2])
+    except:
+        await message.answer("ID та значення повинні бути числами.")
+        return
+
+    set_manual_refs(tg_id, value)
+    await message.answer(f"✅ Встановлено {value} активних рефералів користувачу {tg_id}")
 
 # ============ СТАРТ БОТА ============
 
