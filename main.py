@@ -226,6 +226,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text=b['profile'])],
         [KeyboardButton(text=b['invite'])],
+        [KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
         [KeyboardButton(text=b['top']),],
 
@@ -453,6 +454,25 @@ async def set_lang_handler(call: CallbackQuery):
     await call.answer()
 
 # ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
+
+@router.message(F.text.in_([BUTTONS["ru"]["profile"], BUTTONS["ua"]["profile"]]))
+async def profile_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    balance = get_balance(user_id)
+    active_refs = get_active_ref_count(user_id)
+
+    text = (
+        f"💼 <b>Мій профіль</b>\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"💰 Баланс: <b>{balance:.2f} грн</b>\n"
+        f"👥 Активні реферали: <b>{active_refs}</b>"
+    )
+
+    await message.answer(text)
+
 
 @router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
 async def stats_public(message: Message):
@@ -859,10 +879,18 @@ async def ref50_handler(message: Message):
         return
 
     wd_id = create_withdrawal(user_id, "ref_bonus", "50_uah_cycle", REF_WITHDRAW_AMOUNT)
+    increment_ref_withdraw_count(user_id)
 
-    await message.answer(
-        f"✅ Заявка на 50 грн створена!\nID: {wd_id}"
-    )
+    await message.answer(f"✅ Заявка на 50 грн створена!\nID: {wd_id}")
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"🧾 <b>Нова заявка</b>\n\n👤 {user_id}\n💰 50 грн\nID: {wd_id}"
+            )
+        except:
+            pass
 
 
 
@@ -926,3 +954,16 @@ if __name__ == "__main__":
 
 
 
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
+async def invite_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    bot_info = await bot.get_me()
+    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
+
+    await message.answer(
+        f"👥 <b>Твоє реферальне посилання:</b>\n\n{link}"
+    )
