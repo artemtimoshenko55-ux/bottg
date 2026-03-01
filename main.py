@@ -849,6 +849,7 @@ async def admin_pending(message: Message):
 
 
 
+
 # ===== 50 UAH / 10 ACTIVE REFERRALS SYSTEM =====
 
 REQUIRED_ACTIVE_REFS = 10
@@ -860,10 +861,8 @@ async def ref50_handler(message: Message):
         return
 
     user_id = message.from_user.id
-
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
-
     available_cycles = active_refs // REQUIRED_ACTIVE_REFS
 
     if available_cycles <= used_cycles:
@@ -872,28 +871,29 @@ async def ref50_handler(message: Message):
             remaining = REQUIRED_ACTIVE_REFS
 
         await message.answer(
-            f"❌ Недостатньо активних рефералів.\n\n"
-            f"👥 Активних: {active_refs}\n"
+            f"❌ Недостатньо активних рефералів.
+
+"
+            f"👥 Активних: {active_refs}
+"
             f"Потрібно ще: {remaining}"
         )
         return
 
-    wd_id = create_withdrawal(user_id, "ref_bonus", "50_uah_cycle", REF_WITHDRAW_AMOUNT)
+    # 💰 Начисляем сразу
+    add_balance(user_id, REF_WITHDRAW_AMOUNT)
     increment_ref_withdraw_count(user_id)
 
-    await message.answer(f"✅ Заявка на 50 грн створена!\nID: {wd_id}")
+    await message.answer("✅ 50 грн успішно нараховано на баланс!")
 
     for admin_id in ADMINS:
         try:
             await bot.send_message(
                 admin_id,
-                f"🧾 <b>Нова заявка</b>\n\n👤 {user_id}\n💰 50 грн\nID: {wd_id}"
+                f"💸 Користувач {user_id} отримав 50 грн (реферальний цикл)."
             )
         except:
             pass
-
-
-
 
 # ===== ADMIN MANUAL ACTIVE REF CONTROL =====
 
@@ -950,14 +950,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
-# ===== 50 UAH / 10 ACTIVE REFERRALS SYSTEM =====
-
-
-
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
-async def invite_handler(message: Message):
+(message: Message):
     if not await ensure_full_access(message):
         return
 
