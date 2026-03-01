@@ -31,10 +31,7 @@ from db import (
     get_user,
     activate_user,
     get_balance,
-    add_balance,
-    get_last_bonus_at,
-    set_last_bonus_at,
-    is_banned,
+    add_balance,    is_banned,
     ban_user,
     unban_user,
     create_withdrawal,
@@ -42,13 +39,7 @@ from db import (
     set_withdraw_status,
     get_stats,
     list_all_users,
-    get_top_referrers,
-    create_task_submission,
-    get_task_submission,
-    set_task_status,
-    get_last_task_submission,
-    has_any_approved_task,
-    list_new_withdrawals,
+    get_top_referrers,    list_new_withdrawals,
     get_language,
     set_language,
     list_users,          # 🔹 ДОБАВИЛ ЭТО
@@ -271,22 +262,6 @@ def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def tasks_menu_keyboard() -> InlineKeyboardMarkup:
-    buttons = []
-    for t in TASKS:
-        buttons.append(
-            [InlineKeyboardButton(text=t["title"], callback_data=f"task:{t['id']}")]
-        )
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def task_actions_keyboard(task_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📸 Отправить скрин", callback_data=f"task_proof:{task_id}")],
-            [InlineKeyboardButton(text="⬅️ Назад к заданиям", callback_data="tasks_back")],
-        ]
-    )
 
 
 # ============ ПРОВЕРКИ ============
@@ -371,68 +346,6 @@ async def ensure_full_access(message: Message) -> bool:
         return False
 
     return True
-
-
-
-
-async def try_qualify_referral(user_id: int):
-    """Засчитываем реферала ТОЛЬКО если он:
-    1) забрал бонус (есть last_bonus_at)
-    2) выполнил хотя бы 1 задание (есть approved task_submissions)
-
-    Порядок не важен: функцию вызываем и после бонуса, и после approve задания.
-    """
-    try:
-        u = get_user(user_id)
-    except Exception:
-        return
-
-    if not u:
-        return
-
-    # get_user: (tg_id, balance, referrer_id, activated, phone, created_at, last_bonus_at, banned)
-    referrer_id = u[2]
-    activated = int(u[3] or 0)
-
-    # Уже засчитан
-    if activated == 1:
-        return
-
-    # Нет реферера
-    if not referrer_id:
-        return
-
-    # 1) бонус должен быть забран
-    if not get_last_bonus_at(user_id):
-        return
-
-    # 2) хотя бы 1 одобренное задание
-    if not has_any_approved_task(user_id):
-        return
-
-    # Засчитываем реферала: отмечаем activated=1 и начисляем бонус рефереру (один раз)
-    # activate_user вернет referrer_id только при первом засчёте.
-    try:
-        ref = activate_user(user_id)
-    except Exception:
-        return
-
-    if not ref:
-        return
-
-    try:
-        pass
-    except Exception:
-        return
-
-    # Уведомление рефереру (не критично)
-    try:
-        await bot.send_message(
-    ref,
-    f"✅ У тебе новий активний реферал: <code>{user_id}</code>"
-)
-    except Exception:
-        pass
 
 
 
