@@ -23,7 +23,6 @@ from config import (
     USD_RATE,
     ADMINS,
     BOT_START_DATE,
-    TASKS,
     PAYOUTS_CHANNEL_URL,
 )
 from db import (
@@ -89,11 +88,7 @@ dp.include_router(router)
 user_state: dict[int, str] = {}
 pending_withdraw: dict[int, dict] = {}
 
-task_state: dict[int, str] = {}
-pending_task: dict[int, dict] = {}
 
-DAILY_BONUS = 0.3
-DAILY_HOURS = 24
 
 
 # ============ ЯЗЫКИ (RU/UA) ============
@@ -104,21 +99,13 @@ BUTTONS = {
 
         "subscribe": "📢 Подписка",
         "profile": "💼 Мой профиль",
-        "invite": "👥 Пригласить друга",
-        "daily": "🎁 Ежедневный бонус",
-        "stats": "📊 Статистика",
-        "tasks": "📝 Задания",
-        "top": "🏆 Топ рефералов",
+        "invite": "👥 Пригласить друга",        "stats": "📊 Статистика",        "top": "🏆 Топ рефералов",
         "ref50": "💸 50 грн",
     },
     "ua": {
         "subscribe": "📢 Підписка",
         "profile": "💼 Мій профіль",
-        "invite": "👥 Запросити друга",
-        "daily": "🎁 Щоденний бонус",
-        "stats": "📊 Статистика",
-        "tasks": "📝 Завдання",
-        "top": "🏆 Топ рефералів",
+        "invite": "👥 Запросити друга",        "stats": "📊 Статистика",        "top": "🏆 Топ рефералів",
         "ref50": "💸 50 грн",
     },
 }
@@ -248,9 +235,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text=b['profile'])],
         [KeyboardButton(text=b['invite'])],
-        [KeyboardButton(text=b['daily']), KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
-        [KeyboardButton(text=b['tasks'])],
         [KeyboardButton(text=b['top']),],
 
     ]
@@ -556,77 +541,6 @@ async def set_lang_handler(call: CallbackQuery):
 
 # ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
 
-@router.message(F.text.in_([BUTTONS["ru"]["profile"], BUTTONS["ua"]["profile"]]))
-async def my_profile(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-    me = await bot.get_me()
-    ref_link = f"https://t.me/{me.username}?start={user_id}"
-
-    text = (
-        "👤 <b>Твій профіль</b>\n\n"
-        f"👥 Реферальне посилання:\n<code>{ref_link}</code>\n\n"
-        "За кожного друга, який забере бонус і виконає хоча б 1 завдання — "
-        "ти отримуєш активного реферала."
-    )
-    await message.answer(text)
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
-async def invite_friend(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-    me = await bot.get_me()
-    ref_link = f"https://t.me/{me.username}?start={user_id}"
-
-    await message.answer(
-    "Надішли це посилання друзям:\n"
-    f"<code>{ref_link}</code>\n\n"
-    "За кожного друга, який забере бонус і виконає хоча б 1 завдання — "
-    "ти отримуєш активного реферала.",
-)
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["daily"], BUTTONS["ua"]["daily"]]))
-async def daily_bonus(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-    now = datetime.now(timezone.utc)
-    last = get_last_bonus_at(user_id)
-
-    if last:
-        try:
-            last_dt = datetime.fromisoformat(last)
-            delta = now - last_dt
-            if delta.total_seconds() < DAILY_HOURS * 3600:
-                remain = DAILY_HOURS * 3600 - delta.total_seconds()
-                h = int(remain // 3600)
-                m = int((remain % 3600) // 60)
-                await message.answer(
-                    f"⏳ Бонус уже забран.\n"
-                    f"Следующий будет доступен через <b>{h} ч {m} мин</b>."
-                )
-                return
-        except Exception:
-            pass
-
-    add_balance(user_id, DAILY_BONUS)
-    set_last_bonus_at(user_id, now.isoformat())
-    await try_qualify_referral(user_id)
-    bal = get_balance(user_id)
-
-    await message.answer(
-        f"🎁 Ты получил бонус <b>{fmt_money(DAILY_BONUS)}</b>!\n"
-        f"Текущий баланс: <b>{fmt_money(bal)}</b>."
-    )
-
-
 @router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
 async def stats_public(message: Message):
     s = get_stats()
@@ -667,251 +581,6 @@ async def top_referrals(message: Message):
         lines.append(f"{i}. {name} — {cnt} активних рефералів")
 
     await message.answer("\n".join(lines))
-
-
-# ============ ЗАДАНИЯ ============
-
-@router.message(F.text.in_([BUTTONS["ru"]["tasks"], BUTTONS["ua"]["tasks"]]))
-async def tasks_menu_handler(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    if not TASKS:
-        await message.answer("Пока нет доступных заданий.")
-        return
-
-    text = "📝 <b>Доступные задания</b>:\n\n"
-    for t in TASKS:
-        text += f"• {t['title']} — <b>{fmt_money(t['price'])}</b>\n"
-
-    text += (
-        "\nЕсли хотите добавить СВОЁ задание в бот — пишите сюда: @Bassss6\n\n"
-        "Выбери задание из списка ниже 👇"
-    )
-
-    await message.answer(text, reply_markup=tasks_menu_keyboard())
-
-
-@router.callback_query(F.data == "tasks_back")
-async def tasks_back(call: CallbackQuery):
-    await tasks_menu_handler(call.message)
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("task:"))
-async def open_task(call: CallbackQuery):
-    task_id = call.data.split(":", 1)[1]
-    t = get_task_by_id(task_id)
-    if not t:
-        await call.answer("Задание не найдено", show_alert=True)
-        return
-
-    last = get_last_task_submission(call.from_user.id, task_id)
-    if last and last[1] in ("pending", "approved"):
-        await call.message.answer("❌ Ты уже выполнял это задание или оно на проверке.")
-        await call.answer()
-        return
-
-    text = (
-        f"🔸 <b>{t['title']}</b>\n\n"
-        f"Награда: <b>{fmt_money(t['price'])}</b>\n\n"
-        f"{t['instructions']}"
-    )
-    await call.message.answer(text, reply_markup=task_actions_keyboard(task_id))
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("task_proof:"))
-async def task_proof_start(call: CallbackQuery):
-    task_id = call.data.split(":", 1)[1]
-    t = get_task_by_id(task_id)
-    if not t:
-        await call.answer("Задание не найдено", show_alert=True)
-        return
-
-    user_id = call.from_user.id
-    last = get_last_task_submission(user_id, task_id)
-    if last and last[1] in ("pending", "approved"):
-        await call.message.answer("❌ Ты уже выполнял это задание или оно на проверке.")
-        await call.answer()
-        return
-
-    task_state[user_id] = "waiting_proof"
-    pending_task[user_id] = {"task_id": task_id}
-
-    await call.message.answer("📸 Отправь скрин выполнения задания одним фото.")
-    await call.answer()
-
-
-@router.message(F.photo)
-async def handle_task_photo(message: Message):
-    user_id = message.from_user.id
-    if task_state.get(user_id) != "waiting_proof":
-        return
-
-    if not await ensure_full_access(message):
-        task_state.pop(user_id, None)
-        pending_task.pop(user_id, None)
-        return
-
-    data = pending_task.get(user_id)
-    if not data or "task_id" not in data:
-        await message.answer("Ошибка состояния. Попробуй открыть задание заново.")
-        task_state.pop(user_id, None)
-        pending_task.pop(user_id, None)
-        return
-
-    task_id = data["task_id"]
-    t = get_task_by_id(task_id)
-    if not t:
-        await message.answer("Задание не найдено. Попробуй позже.")
-        task_state.pop(user_id, None)
-        pending_task.pop(user_id, None)
-        return
-
-    file_id = message.photo[-1].file_id
-    caption = message.caption or ""
-
-    sub_id = create_task_submission(user_id, task_id, file_id, caption)
-
-    await message.answer(
-        "✅ Скрин отправлен на проверку.\n"
-        "После проверки админом ты получишь уведомление."
-    )
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✔️ Принять", callback_data=f"task_ok:{sub_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"task_no:{sub_id}"),
-            ]
-        ]
-    )
-
-    for adm in ADMINS:
-        try:
-            await bot.send_photo(
-                adm,
-                photo=file_id,
-                caption=(
-                    f"📝 <b>Новая заявка по заданию</b>\n"
-                    f"ID заявки: <code>{sub_id}</code>\n"
-                    f"Задание: <b>{t['title']}</b>\n"
-                    f"Пользователь: <code>{user_id}</code>\n\n"
-                    f"Комментарий юзера:\n{caption or '—'}"
-                ),
-                reply_markup=kb,
-            )
-        except Exception:
-            pass
-
-    task_state.pop(user_id, None)
-    pending_task.pop(user_id, None)
-
-
-@router.callback_query(F.data.startswith("task_ok:"))
-async def task_ok(call: CallbackQuery):
-    if call.from_user.id not in ADMINS:
-        await call.answer("Не админ", show_alert=True)
-        return
-
-    sub_id = int(call.data.split(":", 1)[1])
-    sub = get_task_submission(sub_id)
-    if not sub:
-        await call.answer("Заявка не найдена", show_alert=True)
-        return
-
-    tg_id = sub[1]
-    task_id = sub[2]
-    status = sub[3]
-
-    if status == "approved":
-        await call.answer("Уже одобрено", show_alert=True)
-        return
-    if status == "rejected":
-        await call.answer("Уже отклонено", show_alert=True)
-        return
-
-    t = get_task_by_id(task_id)
-    if not t:
-        await call.answer("Задание не найдено", show_alert=True)
-        return
-
-    set_task_status(sub_id, "approved")
-    add_balance(tg_id, t["price"])
-
-    # Проверяем, не стал ли реферал "активным" (бонус + 1 задание)
-    await try_qualify_referral(tg_id)
-
-    try:
-        await call.message.edit_caption(
-            (call.message.caption or "") + "\n\n✔️ <b>Одобрено админом</b>"
-        )
-    except Exception:
-        try:
-            await call.message.edit_text(
-                (call.message.text or "") + "\n\n✔️ <b>Одобрено админом</b>"
-            )
-        except Exception:
-            pass
-
-    await call.answer("Принято")
-
-    try:
-        await bot.send_message(
-            tg_id,
-            f"🎉 Задание <b>{t['title']}</b> одобрено!\n"
-            f"Тебе начислено: <b>{fmt_money(t['price'])}</b>."
-        )
-    except Exception:
-        pass
-
-
-@router.callback_query(F.data.startswith("task_no:"))
-async def task_no(call: CallbackQuery):
-    if call.from_user.id not in ADMINS:
-        await call.answer("Не админ", show_alert=True)
-        return
-
-    sub_id = int(call.data.split(":", 1)[1])
-    sub = get_task_submission(sub_id)
-    if not sub:
-        await call.answer("Заявка не найдена", show_alert=True)
-        return
-
-    tg_id = sub[1]
-    status = sub[3]
-
-    if status == "approved":
-        await call.answer("Уже одобрено", show_alert=True)
-        return
-    if status == "rejected":
-        await call.answer("Уже отклонено", show_alert=True)
-        return
-
-    set_task_status(sub_id, "rejected")
-
-    try:
-        await call.message.edit_caption(
-            (call.message.caption or "") + "\n\n❌ <b>Отклонено админом</b>"
-        )
-    except Exception:
-        try:
-            await call.message.edit_text(
-                (call.message.text or "") + "\n\n❌ <b>Отклонено админом</b>"
-            )
-        except Exception:
-            pass
-
-    await call.answer("Отклонено")
-
-    try:
-        await bot.send_message(
-            tg_id,
-            "❌ Твоя заявка по заданию была отклонена админом."
-        )
-    except Exception:
-        pass
 
 
 # ============ ВЫВОД СРЕДСТВ ============
