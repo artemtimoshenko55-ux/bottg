@@ -31,7 +31,10 @@ from db import (
     get_user,
     activate_user,
     get_balance,
-    add_balance,    is_banned,
+    add_balance,
+    get_last_bonus_at,
+    set_last_bonus_at,
+    is_banned,
     ban_user,
     unban_user,
     create_withdrawal,
@@ -39,7 +42,13 @@ from db import (
     set_withdraw_status,
     get_stats,
     list_all_users,
-    get_top_referrers,    list_new_withdrawals,
+    get_top_referrers,
+    create_task_submission,
+    get_task_submission,
+    set_task_status,
+    get_last_task_submission,
+    has_any_approved_task,
+    list_new_withdrawals,
     get_language,
     set_language,
     list_users,          # 🔹 ДОБАВИЛ ЭТО
@@ -78,6 +87,7 @@ dp.include_router(router)
 # Простые FSM-состояния (на словарях)
 user_state: dict[int, str] = {}
 pending_withdraw: dict[int, dict] = {}
+withdraw_wait_card: dict[int, bool] = {}
 
 
 
@@ -226,7 +236,6 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text=b['profile'])],
         [KeyboardButton(text=b['invite'])],
-        [KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
         [KeyboardButton(text=b['top']),],
 
@@ -263,6 +272,22 @@ def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def tasks_menu_keyboard() -> InlineKeyboardMarkup:
+    buttons = []
+    for t in TASKS:
+        buttons.append(
+            [InlineKeyboardButton(text=t["title"], callback_data=f"task:{t['id']}")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def task_actions_keyboard(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📸 Отправить скрин", callback_data=f"task_proof:{task_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад к заданиям", callback_data="tasks_back")],
+        ]
+    )
 
 
 # ============ ПРОВЕРКИ ============
@@ -347,6 +372,68 @@ async def ensure_full_access(message: Message) -> bool:
         return False
 
     return True
+
+
+
+
+async def try_qualify_referral(user_id: int):
+    """Засчитываем реферала ТОЛЬКО если он:
+    1) забрал бонус (есть last_bonus_at)
+    2) выполнил хотя бы 1 задание (есть approved task_submissions)
+
+    Порядок не важен: функцию вызываем и после бонуса, и после approve задания.
+    """
+    try:
+        u = get_user(user_id)
+    except Exception:
+        return
+
+    if not u:
+        return
+
+    # get_user: (tg_id, balance, referrer_id, activated, phone, created_at, last_bonus_at, banned)
+    referrer_id = u[2]
+    activated = int(u[3] or 0)
+
+    # Уже засчитан
+    if activated == 1:
+        return
+
+    # Нет реферера
+    if not referrer_id:
+        return
+
+    # 1) бонус должен быть забран
+    if not get_last_bonus_at(user_id):
+        return
+
+    # 2) хотя бы 1 одобренное задание
+    if not has_any_approved_task(user_id):
+        return
+
+    # Засчитываем реферала: отмечаем activated=1 и начисляем бонус рефереру (один раз)
+    # activate_user вернет referrer_id только при первом засчёте.
+    try:
+        ref = activate_user(user_id)
+    except Exception:
+        return
+
+    if not ref:
+        return
+
+    try:
+        pass
+    except Exception:
+        return
+
+    # Уведомление рефереру (не критично)
+    try:
+        await bot.send_message(
+    ref,
+    f"✅ У тебе новий активний реферал: <code>{user_id}</code>"
+)
+    except Exception:
+        pass
 
 
 
@@ -459,22 +546,27 @@ async def set_lang_handler(call: CallbackQuery):
 async def profile_handler(message: Message):
     if not await ensure_full_access(message):
         return
-
     user_id = message.from_user.id
     balance = get_balance(user_id)
     active_refs = get_active_ref_count(user_id)
-
-    text = (
+    await message.answer(
         f"💼 <b>Мій профіль</b>\n\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"💰 Баланс: <b>{balance:.2f} грн</b>\n"
         f"👥 Активні реферали: <b>{active_refs}</b>"
     )
 
-    await message.answer(text)
-
 
 @router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
+
+@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
+async def invite_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+    bot_info = await bot.get_me()
+    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
+    await message.answer(f"👥 <b>Твоє реферальне посилання:</b>\n\n{link}")
+
 async def stats_public(message: Message):
     s = get_stats()
     days = get_bot_days_running()
@@ -849,6 +941,7 @@ async def admin_pending(message: Message):
 
 
 
+
 # ===== 50 UAH / 10 ACTIVE REFERRALS SYSTEM =====
 
 REQUIRED_ACTIVE_REFS = 10
@@ -860,40 +953,94 @@ async def ref50_handler(message: Message):
         return
 
     user_id = message.from_user.id
-
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
-
     available_cycles = active_refs // REQUIRED_ACTIVE_REFS
 
     if available_cycles <= used_cycles:
         remaining = REQUIRED_ACTIVE_REFS - (active_refs % REQUIRED_ACTIVE_REFS)
         if remaining == REQUIRED_ACTIVE_REFS:
             remaining = REQUIRED_ACTIVE_REFS
-
-        await message.answer(
-            f"❌ Недостатньо активних рефералів.\n\n"
-            f"👥 Активних: {active_refs}\n"
-            f"Потрібно ще: {remaining}"
-        )
+        await message.answer(f"❌ Потрібно ще {remaining} рефералів")
         return
 
-    wd_id = create_withdrawal(user_id, "ref_bonus", "50_uah_cycle", REF_WITHDRAW_AMOUNT)
+    withdraw_wait_card[user_id] = True
+    await message.answer("💳 Введи номер картки для виводу 50 грн:")
+
+
+@router.message()
+async def handle_card_input(message: Message):
+    user_id = message.from_user.id
+    if user_id not in withdraw_wait_card:
+        return
+
+    card = message.text.strip()
+    if len(card) < 12:
+        await message.answer("❌ Невірний номер картки.")
+        return
+
+    del withdraw_wait_card[user_id]
+
+    wd_id = create_withdrawal(user_id, "card", card, REF_WITHDRAW_AMOUNT)
     increment_ref_withdraw_count(user_id)
 
-    await message.answer(f"✅ Заявка на 50 грн створена!\nID: {wd_id}")
+    admin_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Одобрити", callback_data=f"wd_ok:{wd_id}"),
+                InlineKeyboardButton(text="❌ Відхилити", callback_data=f"wd_no:{wd_id}")
+            ]
+        ]
+    )
 
-    for admin_id in ADMINS:
+    for admin in ADMINS:
         try:
             await bot.send_message(
-                admin_id,
-                f"🧾 <b>Нова заявка</b>\n\n👤 {user_id}\n💰 50 грн\nID: {wd_id}"
+                admin,
+                f"🧾 <b>Нова заявка</b>
+
+"
+                f"👤 {user_id}
+"
+                f"💳 Картка: {card}
+"
+                f"💰 50 грн
+"
+                f"ID: {wd_id}",
+                reply_markup=admin_kb
             )
         except:
             pass
 
+    await message.answer("✅ Заявка відправлена адміну.")
 
 
+@router.callback_query(F.data.startswith("wd_ok:"))
+async def wd_ok(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+    wd_id = int(call.data.split(":")[1])
+    wd = get_withdraw(wd_id)
+    if not wd:
+        return
+    user_id = wd[1]
+    set_withdraw_status(wd_id, "approved")
+    await call.message.edit_reply_markup(reply_markup=None)
+    await bot.send_message(user_id, "✅ Твою заявку одобрено!")
+
+
+@router.callback_query(F.data.startswith("wd_no:"))
+async def wd_no(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+    wd_id = int(call.data.split(":")[1])
+    wd = get_withdraw(wd_id)
+    if not wd:
+        return
+    user_id = wd[1]
+    set_withdraw_status(wd_id, "rejected")
+    await call.message.edit_reply_markup(reply_markup=None)
+    await bot.send_message(user_id, "❌ Твою заявку відхилено.")
 
 # ===== ADMIN MANUAL ACTIVE REF CONTROL =====
 
@@ -954,16 +1101,3 @@ if __name__ == "__main__":
 
 
 
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
-async def invite_handler(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    bot_info = await bot.get_me()
-    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
-
-    await message.answer(
-        f"👥 <b>Твоє реферальне посилання:</b>\n\n{link}"
-    )
