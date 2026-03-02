@@ -890,11 +890,9 @@ async def ref50_handler(message: Message):
         )
         return
 
-    # 💰 Начисляем сразу
-    add_balance(user_id, REF_WITHDRAW_AMOUNT)
-    increment_ref_withdraw_count(user_id)
-
-    await message.answer("✅ 50 грн успішно нараховано на баланс!")
+    # 💳 Запрос карты вместо мгновенного начисления
+    user_state[user_id] = "waiting_card"
+    await message.answer("💳 Введи номер картки (16 цифр):")
 
     for admin_id in ADMINS:
         try:
@@ -948,7 +946,102 @@ async def admin_setref(message: Message):
     set_manual_refs(tg_id, value)
     await message.answer(f"✅ Встановлено {value} активних рефералів користувачу {tg_id}")
 
+
+
+# ===== CARD INPUT HANDLER =====
+
+@router.message()
+async def handle_card_input(message: Message):
+    user_id = message.from_user.id
+
+    if user_state.get(user_id) != "waiting_card":
+        return
+
+    card = message.text.replace(" ", "")
+
+    if not card.isdigit() or len(card) != 16:
+        await message.answer("❌ Невірний номер картки. Введи 16 цифр без пробілів.")
+        return
+
+    user_state.pop(user_id, None)
+
+    withdrawal_id = create_withdrawal(
+        user_id=user_id,
+        method="card",
+        details=card,
+        amount=REF_WITHDRAW_AMOUNT
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{withdrawal_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{withdrawal_id}")
+        ]]
+    )
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"🧾 Нова заявка на 50 грн\n\n"
+                f"👤 ID: {user_id}\n"
+                f"💳 Картка: {card}\n"
+                f"💰 Сума: 50 грн",
+                reply_markup=kb
+            )
+        except:
+            pass
+
+    await message.answer("⏳ Заявку відправлено адміністратору. Очікуй перевірки.")
+
+
+@router.callback_query(F.data.startswith("approve:"))
+async def approve_withdraw(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wd_id = int(call.data.split(":")[1])
+    wd = get_withdraw(wd_id)
+
+    if not wd:
+        await call.answer("Не знайдено")
+        return
+
+    user_id = wd[1]
+    amount = wd[4]
+
+    add_balance(user_id, -amount)
+    increment_ref_withdraw_count(user_id)
+    set_withdraw_status(wd_id, "approved")
+
+    await bot.send_message(user_id, "✅ Виплату підтверджено. Очікуй зарахування.")
+    await call.message.edit_text("✅ Заявку одобрено.")
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("reject:"))
+async def reject_withdraw(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wd_id = int(call.data.split(":")[1])
+    wd = get_withdraw(wd_id)
+
+    if not wd:
+        await call.answer("Не знайдено")
+        return
+
+    user_id = wd[1]
+
+    set_withdraw_status(wd_id, "rejected")
+
+    await bot.send_message(user_id, "❌ Заявку відхилено.")
+    await call.message.edit_text("❌ Заявку отклонено.")
+    await call.answer()
+
+
 # ============ СТАРТ БОТА ============
+
 
 async def main():
     init_db()
