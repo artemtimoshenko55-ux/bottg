@@ -883,11 +883,8 @@ async def ref50_handler(message: Message):
             remaining = REQUIRED_ACTIVE_REFS
 
         await message.answer(
-            f"❌ Недостатньо активних рефералів.
-
-"
-            f"👥 Активних: {active_refs}
-"
+            f"❌ Недостатньо активних рефералів.\n\n"
+            f"👥 Активних: {active_refs}\n"
             f"Потрібно ще: {remaining}"
         )
         return
