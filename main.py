@@ -455,6 +455,19 @@ async def set_lang_handler(call: CallbackQuery):
 
 # ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
 
+@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
+async def invite_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    bot_info = await bot.get_me()
+    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
+
+    await message.answer(
+        f"👥 <b>Твоє реферальне посилання:</b>\n\n{link}"
+    )
+
+
 @router.message(F.text.in_([BUTTONS["ru"]["profile"], BUTTONS["ua"]["profile"]]))
 async def profile_handler(message: Message):
     if not await ensure_full_access(message):
@@ -950,13 +963,3 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
-(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    bot_info = await bot.get_me()
-    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
-
-    await message.answer(
-        f"👥 <b>Твоє реферальне посилання:</b>\n\n{link}"
-    )
