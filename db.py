@@ -58,8 +58,8 @@ def init_db():
     _ensure_column(cur, "users", "created_at TEXT")
     _ensure_column(cur, "users", "last_bonus_at TEXT")
     _ensure_column(cur, "users", "banned INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "manual_refs INTEGER DEFAULT 0")
+    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0,
+            manual_refs INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance DOUBLE PRECISION DEFAULT 0")
     _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
 
@@ -544,25 +544,13 @@ def list_users_page(offset: int = 0, limit: int = 50):
 def get_active_ref_count(referrer_id):
     conn = _get_conn()
     cur = conn.cursor()
-
-    # реальные рефералы
     cur.execute(
         "SELECT COUNT(*) FROM users WHERE referrer_id=%s AND activated=1",
         (referrer_id,),
     )
-    real = cur.fetchone()[0] or 0
-
-    # накрученные
-    cur.execute(
-        "SELECT COALESCE(manual_refs,0) FROM users WHERE tg_id=%s",
-        (referrer_id,),
-    )
-    row = cur.fetchone()
-    manual = row[0] if row else 0
-
+    cnt = cur.fetchone()[0]
     conn.close()
-    return int(real + manual)
-
+    return int(cnt)
 
 
 def get_ref_withdraw_count(tg_id):
@@ -607,6 +595,30 @@ def set_fake_total(value: int):
         DO UPDATE SET value = EXCLUDED.value
         """,
         (str(value),),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------- MANUAL REFERRALS (ADMIN) ----------
+
+def set_manual_refs(tg_id: int, value: int):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET manual_refs=%s WHERE tg_id=%s",
+        (value, tg_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_manual_refs(tg_id: int, count: int):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET manual_refs = COALESCE(manual_refs,0) + %s WHERE tg_id=%s",
+        (count, tg_id),
     )
     conn.commit()
     conn.close()
