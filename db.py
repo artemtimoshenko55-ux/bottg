@@ -45,7 +45,8 @@ def init_db():
             created_at TEXT,
             last_bonus_at TEXT,
             banned INTEGER DEFAULT 0,
-            ref_withdraw_count INTEGER DEFAULT 0
+            ref_withdraw_count INTEGER DEFAULT 0,
+            manual_refs INTEGER DEFAULT 0
         )
         """
     )
@@ -57,9 +58,10 @@ def init_db():
     _ensure_column(cur, "users", "created_at TEXT")
     _ensure_column(cur, "users", "last_bonus_at TEXT")
     _ensure_column(cur, "users", "banned INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "manual_ref_count INTEGER DEFAULT 0")
+    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0,
+            manual_refs INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance DOUBLE PRECISION DEFAULT 0")
+    _ensure_column(cur, "users", "manual_refs INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
 
     # Таблица выводов
@@ -214,6 +216,25 @@ def is_phone_used(phone: str, except_id: int | None = None) -> bool:
     return row is not None
 
 
+# ---------- BONUS ----------
+
+def get_last_bonus_at(tg_id):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT last_bonus_at FROM users WHERE tg_id=%s", (tg_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_last_bonus_at(tg_id, value: str):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET last_bonus_at=%s WHERE tg_id=%s", (value, tg_id))
+    conn.commit()
+    conn.close()
+
+
 # ---------- LANGUAGE ----------
 
 def get_language(tg_id):
@@ -322,6 +343,87 @@ def list_new_withdrawals(limit: int = 30):
     rows = cur.fetchall()
     conn.close()
     return rows
+
+
+# ---------- TASK SUBMISSIONS ----------
+
+def create_task_submission(tg_id, task_id, proof_file_id, proof_caption):
+    conn = _get_conn()
+    cur = conn.cursor()
+    created_at = datetime.now(timezone.utc).isoformat()
+    cur.execute(
+        """
+        INSERT INTO task_submissions (tg_id, task_id, status, proof_file_id, proof_caption, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (tg_id, task_id, "pending", proof_file_id, proof_caption, created_at),
+    )
+    sid = cur.fetchone()[0]
+    conn.commit()
+    conn.close()
+    return sid
+
+
+def get_task_submission(sub_id):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, tg_id, task_id, status, proof_file_id, proof_caption, created_at
+        FROM task_submissions
+        WHERE id=%s
+        """,
+        (sub_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def set_task_status(sub_id, status):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE task_submissions SET status=%s WHERE id=%s", (status, sub_id))
+    conn.commit()
+    conn.close()
+
+
+def get_last_task_submission(tg_id, task_id):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, status
+        FROM task_submissions
+        WHERE tg_id=%s AND task_id=%s
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (tg_id, task_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def has_any_approved_task(tg_id) -> bool:
+    """True, если у пользователя есть хотя бы 1 одобренная заявка по заданиям."""
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1
+        FROM task_submissions
+        WHERE tg_id=%s AND status='approved'
+        LIMIT 1
+        """,
+        (tg_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
 
 
 # ---------- STATS / TOP / USERS ----------
@@ -440,23 +542,23 @@ def list_users_page(offset: int = 0, limit: int = 50):
 
 # ---------- REF SYSTEM (50 UAH / 10 ACTIVE) ----------
 
+
 def get_active_ref_count(referrer_id):
     conn = _get_conn()
     cur = conn.cursor()
-    # real activated refs
     cur.execute(
         "SELECT COUNT(*) FROM users WHERE referrer_id=%s AND activated=1",
         (referrer_id,),
     )
-    real_cnt = cur.fetchone()[0]
+    real = cur.fetchone()[0]
 
-    # manual refs added by admin
-    cur.execute("SELECT manual_ref_count FROM users WHERE tg_id=%s", (referrer_id,))
+    cur.execute("SELECT manual_refs FROM users WHERE tg_id=%s", (referrer_id,))
     row = cur.fetchone()
-    manual_cnt = int(row[0]) if row and row[0] else 0
+    manual = row[0] if row and row[0] else 0
 
     conn.close()
-    return int(real_cnt) + manual_cnt
+    return int(real + manual)
+
 
 
 def get_ref_withdraw_count(tg_id):
@@ -506,25 +608,22 @@ def set_fake_total(value: int):
     conn.close()
 
 
-# ---------- MANUAL REF CONTROL ----------
+# ---------- MANUAL REFS ----------
 
-def set_manual_refs(tg_id: int, value: int):
+def set_manual_refs(tg_id, value: int):
     conn = _get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET manual_ref_count=%s WHERE tg_id=%s",
-        (max(0, value), tg_id),
-    )
+    cur.execute("UPDATE users SET manual_refs=%s WHERE tg_id=%s", (value, tg_id))
     conn.commit()
     conn.close()
 
 
-def add_manual_refs(tg_id: int, value: int):
+def add_manual_refs(tg_id, value: int):
     conn = _get_conn()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE users SET manual_ref_count = COALESCE(manual_ref_count,0) + %s WHERE tg_id=%s",
-        (max(0, value), tg_id),
+        "UPDATE users SET manual_refs = COALESCE(manual_refs,0) + %s WHERE tg_id=%s",
+        (value, tg_id),
     )
     conn.commit()
     conn.close()
