@@ -831,6 +831,9 @@ async def admin_all(message: Message):
 
 @router.message(Command("pending"))
 async def admin_pending(message: Message):
+    """
+    /pending — показать новые (не обработанные) заявки на вывод
+    """
     if not user_is_admin(message.from_user.id):
         return
 
@@ -839,32 +842,20 @@ async def admin_pending(message: Message):
         await message.answer("🧾 Новых заявок на вывод нет.")
         return
 
+    lines = ["🧾 <b>Новые заявки на вывод:</b>"]
     for wd in wds:
         wd_id, tg_id, method, details, amount, status, created_at = wd
-
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[[
-                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{wd_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{wd_id}")
-            ]]
+        lines.append(
+            f"\nID: <code>{wd_id}</code>\n"
+            f"👤 Пользователь: <code>{tg_id}</code>\n"
+            f"💰 Сумма: <b>{amount:.2f} грн</b>\n"
+            f"📦 Метод: <b>{method}</b>\n"
+            f"📄 Детали: {details}\n"
+            f"⏰ Создано: {created_at}\n"
         )
 
-        text = (
-            f"🧾 <b>Заявка #{wd_id}</b>
-
-"
-            f"👤 Пользователь: <code>{tg_id}</code>
-"
-            f"💰 Сумма: <b>{amount:.2f} грн</b>
-"
-            f"📦 Метод: <b>{method}</b>
-"
-            f"📄 Детали: {details}
-"
-            f"⏰ {created_at}"
-        )
-
-        await message.answer(text, reply_markup=kb)
+    lines.append("\nℹ️ Обрабатывай заявки через кнопки под сообщениями бота с заявками.")
+    await message.answer("\n".join(lines))
 
 
 
