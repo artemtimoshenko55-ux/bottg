@@ -881,11 +881,9 @@ async def ref50_handler(message: Message):
     user_id = message.from_user.id
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
+    available_cycles = active_refs // REQUIRED_ACTIVE_REFS
 
-    total_cycles = active_refs // REQUIRED_ACTIVE_REFS
-    available_cycles = total_cycles - used_cycles
-
-    if available_cycles <= 0:
+    if available_cycles - used_cycles <= 0:
         remaining = REQUIRED_ACTIVE_REFS - (active_refs % REQUIRED_ACTIVE_REFS)
         if remaining == REQUIRED_ACTIVE_REFS:
             remaining = REQUIRED_ACTIVE_REFS
@@ -1013,6 +1011,9 @@ async def admin_addref(message: Message):
     try:
         tg_id = int(parts[1])
         count = int(parts[2])
+        if count <= 0:
+            await message.answer('Кількість повинна бути більше 0')
+            return
     except:
         await message.answer("ID та кількість повинні бути числами.")
         return
@@ -1034,6 +1035,8 @@ async def admin_setref(message: Message):
     try:
         tg_id = int(parts[1])
         value = int(parts[2])
+        if value < 0:
+            value = 0
     except:
         await message.answer("ID та значення повинні бути числами.")
         return
