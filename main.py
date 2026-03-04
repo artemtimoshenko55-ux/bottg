@@ -906,7 +906,7 @@ async def ref50_handler(message: Message):
     await message.answer("💳 Введи номер картки (16 цифр):")
 
 
-@router.message()
+@router.message(F.text.regexp(r'^[0-9 ]{12,20}$'))
 async def handle_card_input(message: Message):
     user_id = message.from_user.id
 
