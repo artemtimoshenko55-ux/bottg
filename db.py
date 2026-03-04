@@ -60,6 +60,7 @@ def init_db():
     _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance DOUBLE PRECISION DEFAULT 0")
     _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
+    _ensure_column(cur, "users", "manual_refs INTEGER DEFAULT 0")
 
     # Таблица выводов
     cur.execute(
@@ -539,16 +540,24 @@ def list_users_page(offset: int = 0, limit: int = 50):
 
 # ---------- REF SYSTEM (50 UAH / 10 ACTIVE) ----------
 
+
 def get_active_ref_count(referrer_id):
     conn = _get_conn()
     cur = conn.cursor()
+
     cur.execute(
         "SELECT COUNT(*) FROM users WHERE referrer_id=%s AND activated=1",
         (referrer_id,),
     )
-    cnt = cur.fetchone()[0]
+    real = cur.fetchone()[0]
+
+    cur.execute("SELECT manual_refs FROM users WHERE tg_id=%s", (referrer_id,))
+    row = cur.fetchone()
+    manual = row[0] if row and row[0] else 0
+
     conn.close()
-    return int(cnt)
+    return int(real + manual)
+
 
 
 def get_ref_withdraw_count(tg_id):
@@ -593,6 +602,27 @@ def set_fake_total(value: int):
         DO UPDATE SET value = EXCLUDED.value
         """,
         (str(value),),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------- MANUAL REF CONTROL ----------
+
+def set_manual_refs(tg_id, value: int):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET manual_refs=%s WHERE tg_id=%s", (value, tg_id))
+    conn.commit()
+    conn.close()
+
+
+def add_manual_refs(tg_id, value: int):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET manual_refs = COALESCE(manual_refs,0) + %s WHERE tg_id=%s",
+        (value, tg_id),
     )
     conn.commit()
     conn.close()
