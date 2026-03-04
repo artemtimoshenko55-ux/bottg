@@ -58,8 +58,8 @@ def init_db():
     _ensure_column(cur, "users", "created_at TEXT")
     _ensure_column(cur, "users", "last_bonus_at TEXT")
     _ensure_column(cur, "users", "banned INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0,
-            manual_refs INTEGER DEFAULT 0")
+    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0")
+    _ensure_column(cur, "users", "manual_refs INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance DOUBLE PRECISION DEFAULT 0")
     _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
 
@@ -544,13 +544,25 @@ def list_users_page(offset: int = 0, limit: int = 50):
 def get_active_ref_count(referrer_id):
     conn = _get_conn()
     cur = conn.cursor()
+
+    # реальные рефералы
     cur.execute(
         "SELECT COUNT(*) FROM users WHERE referrer_id=%s AND activated=1",
         (referrer_id,),
     )
-    cnt = cur.fetchone()[0]
+    real = cur.fetchone()[0] or 0
+
+    # накрученные
+    cur.execute(
+        "SELECT COALESCE(manual_refs,0) FROM users WHERE tg_id=%s",
+        (referrer_id,),
+    )
+    row = cur.fetchone()
+    manual = row[0] if row else 0
+
     conn.close()
-    return int(cnt)
+    return int(real + manual)
+
 
 
 def get_ref_withdraw_count(tg_id):
