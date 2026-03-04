@@ -456,42 +456,23 @@ def get_stats():
     }
 
 
-
 def get_top_referrers(limit: int = 10):
     conn = _get_conn()
     cur = conn.cursor()
-
     cur.execute(
-        '''
-        SELECT
-            u.tg_id,
-            (
-                COALESCE(u.manual_refs,0) +
-                COALESCE((
-                    SELECT COUNT(*)
-                    FROM users r
-                    WHERE r.referrer_id = u.tg_id AND r.activated = 1
-                ),0)
-            ) as total_refs
-        FROM users u
-        WHERE (
-            COALESCE(u.manual_refs,0) +
-            COALESCE((
-                SELECT COUNT(*)
-                FROM users r
-                WHERE r.referrer_id = u.tg_id AND r.activated = 1
-            ),0)
-        ) > 0
-        ORDER BY total_refs DESC
+        """
+        SELECT referrer_id, COUNT(*) as cnt
+        FROM users
+        WHERE activated=1 AND referrer_id IS NOT NULL
+        GROUP BY referrer_id
+        ORDER BY cnt DESC
         LIMIT %s
-        ''',
-        (limit,)
+        """,
+        (limit,),
     )
-
     rows = cur.fetchall()
     conn.close()
     return rows
-
 
 
 def list_users(limit: int = 200):
@@ -628,31 +609,20 @@ def set_fake_total(value: int):
 
 # ---------- MANUAL REF CONTROL ----------
 
-
 def set_manual_refs(tg_id, value: int):
-    if value < 0:
-        value = 0
     conn = _get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET manual_refs=%s WHERE tg_id=%s",
-        (value, tg_id)
-    )
+    cur.execute("UPDATE users SET manual_refs=%s WHERE tg_id=%s", (value, tg_id))
     conn.commit()
     conn.close()
 
 
-
-
 def add_manual_refs(tg_id, value: int):
-    if value <= 0:
-        return
     conn = _get_conn()
     cur = conn.cursor()
     cur.execute(
         "UPDATE users SET manual_refs = COALESCE(manual_refs,0) + %s WHERE tg_id=%s",
-        (value, tg_id)
+        (value, tg_id),
     )
     conn.commit()
     conn.close()
-
