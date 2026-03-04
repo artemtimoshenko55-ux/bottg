@@ -1039,6 +1039,68 @@ async def admin_setref(message: Message):
     set_manual_refs(tg_id, value)
     await message.answer(f"✅ Встановлено {value} активних рефералів користувачу {tg_id}")
 
+
+@router.message(Command("approve"))
+async def admin_approve_cmd(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 2:
+        await message.answer("Використання: /approve ID_заявки")
+        return
+
+    try:
+        wd_id = int(parts[1])
+    except:
+        await message.answer("ID має бути числом.")
+        return
+
+    wd = get_withdraw(wd_id)
+    if not wd:
+        await message.answer("❌ Заявку не знайдено.")
+        return
+
+    user_id = wd[1]
+    amount = wd[4]
+
+    add_balance(user_id, -amount)
+    increment_ref_withdraw_count(user_id)
+    set_withdraw_status(wd_id, "approved")
+
+    await bot.send_message(user_id, "✅ Виплату підтверджено адміністратором.")
+    await message.answer(f"✅ Заявку {wd_id} одобрено.")
+
+
+@router.message(Command("reject"))
+async def admin_reject_cmd(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 2:
+        await message.answer("Використання: /reject ID_заявки")
+        return
+
+    try:
+        wd_id = int(parts[1])
+    except:
+        await message.answer("ID має бути числом.")
+        return
+
+    wd = get_withdraw(wd_id)
+    if not wd:
+        await message.answer("❌ Заявку не знайдено.")
+        return
+
+    user_id = wd[1]
+
+    set_withdraw_status(wd_id, "rejected")
+
+    await bot.send_message(user_id, "❌ Адміністратор відхилив заявку на виплату.")
+    await message.answer(f"❌ Заявку {wd_id} відхилено.")
+
+
 # ============ СТАРТ БОТА ============
 
 async def main():
