@@ -899,10 +899,15 @@ async def ref50_handler(message: Message):
 
     # 🚫 Проверка если уже есть необработанная заявка
     pending = list_new_withdrawals(limit=100)
+    user_has_pending = False
     for wd in pending:
-        if wd[1] == user_id:
-            await message.answer("⏳ У тебе вже є заявка на виплату, дочекайся обробки.")
-            return
+        if wd[1] == user_id and wd[5] == "new":
+            user_has_pending = True
+            break
+
+    if user_has_pending:
+        await message.answer("⏳ У тебе вже є заявка на виплату, дочекайся обробки.")
+        return
 
     user_state[user_id] = "waiting_card"
     await message.answer("💳 Введи номер картки (16 цифр):")
