@@ -881,9 +881,11 @@ async def ref50_handler(message: Message):
     user_id = message.from_user.id
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
-    available_cycles = active_refs // REQUIRED_ACTIVE_REFS
 
-    if available_cycles <= used_cycles:
+    total_cycles = active_refs // REQUIRED_ACTIVE_REFS
+    available_cycles = total_cycles - used_cycles
+
+    if available_cycles <= 0:
         remaining = REQUIRED_ACTIVE_REFS - (active_refs % REQUIRED_ACTIVE_REFS)
         if remaining == REQUIRED_ACTIVE_REFS:
             remaining = REQUIRED_ACTIVE_REFS
