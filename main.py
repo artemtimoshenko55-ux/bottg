@@ -427,17 +427,6 @@ async def cmd_start(message: Message):
             pass
 
     create_user(user_id, ref_id)
-    # ensure referrer saved if user already existed without ref
-    try:
-        from db import _get_conn
-        conn=_get_conn()
-        cur=conn.cursor()
-        if ref_id:
-            cur.execute("UPDATE users SET referrer_id=%s WHERE tg_id=%s AND (referrer_id IS NULL)",(ref_id,user_id))
-            conn.commit()
-        conn.close()
-    except:
-        pass
 
     # ВСЕГДА показываем спонсоров при входе
     await message.answer(
@@ -893,7 +882,7 @@ async def ref50_handler(message: Message):
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
 
-    total_cycles = 1 + (active_refs // REQUIRED_ACTIVE_REFS)
+    total_cycles = active_refs // REQUIRED_ACTIVE_REFS
     available_cycles = total_cycles - used_cycles
 
     if available_cycles <= 0:
@@ -924,7 +913,7 @@ async def ref50_handler(message: Message):
     await message.answer("💳 Введи номер картки (16 цифр):")
 
 
-@router.message()
+@router.message(F.text.regexp(r'^[0-9 ]{12,20}$'))
 async def handle_card_input(message: Message):
     user_id = message.from_user.id
 
@@ -1131,3 +1120,43 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
+
+
+@router.message(Command("pending"))
+async def pending_cmd(message: Message):
+    if message.from_user.id not in ADMINS:
+        return
+    withdrawals = list_new_withdrawals(limit=20)
+    if not withdrawals:
+        await message.answer("Немає заявок.")
+        return
+    for wd in withdrawals:
+        wd_id = wd[0]
+        user_id = wd[1]
+        amount = wd[3]
+        details = wd[4]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Approve", callback_data=f"approve:{wd_id}"),
+            InlineKeyboardButton(text="❌ Reject", callback_data=f"reject:{wd_id}")
+        ]])
+        await message.answer(
+            f"🧾 Заявка #{wd_id}\nUser: {user_id}\nСума: {amount} грн\nКарта: {details}",
+            reply_markup=kb
+        )
+
+
+@router.callback_query(F.data.startswith("approve:"))
+async def approve_wd(call: CallbackQuery):
+    if call.from_user.id not in ADMINS:
+        return
+    wd_id = int(call.data.split(":")[1])
+    approve_withdrawal(wd_id)
+    await call.message.edit_text(f"✅ Заявка {wd_id} одобрена")
+
+@router.callback_query(F.data.startswith("reject:"))
+async def reject_wd(call: CallbackQuery):
+    if call.from_user.id not in ADMINS:
+        return
+    wd_id = int(call.data.split(":")[1])
+    reject_withdrawal(wd_id)
+    await call.message.edit_text(f"❌ Заявка {wd_id} отклонена")

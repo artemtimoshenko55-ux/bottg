@@ -547,7 +547,7 @@ def get_active_ref_count(referrer_id):
 
     # real activated referrals
     cur.execute(
-        "SELECT COUNT(*) FROM users WHERE referrer_id=%s",
+        "SELECT COUNT(*) FROM users WHERE referrer_id=%s AND activated=1",
         (referrer_id,),
     )
     real = cur.fetchone()[0] or 0
