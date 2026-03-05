@@ -132,10 +132,7 @@ TEXTS = {
 
 
 def get_lang(user_id: int) -> str:
-    lang = get_language(user_id)
-    if lang not in ("ru","ua"):
-        return "ru"
-    return lang
+    return 'ua'
 
 # ORIGINAL DISABLED
 #
@@ -430,6 +427,17 @@ async def cmd_start(message: Message):
             pass
 
     create_user(user_id, ref_id)
+    # ensure referrer saved if user already existed without ref
+    try:
+        from db import _get_conn
+        conn=_get_conn()
+        cur=conn.cursor()
+        if ref_id:
+            cur.execute("UPDATE users SET referrer_id=%s WHERE tg_id=%s AND (referrer_id IS NULL)",(ref_id,user_id))
+            conn.commit()
+        conn.close()
+    except:
+        pass
 
     # ВСЕГДА показываем спонсоров при входе
     await message.answer(
@@ -916,7 +924,7 @@ async def ref50_handler(message: Message):
     await message.answer("💳 Введи номер картки (16 цифр):")
 
 
-@router.message(F.text.regexp(r'^[0-9 ]{12,20}$'))
+@router.message()
 async def handle_card_input(message: Message):
     user_id = message.from_user.id
 
