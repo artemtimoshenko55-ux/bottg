@@ -132,7 +132,10 @@ TEXTS = {
 
 
 def get_lang(user_id: int) -> str:
-    return 'ua'
+    lang = get_language(user_id)
+    if lang not in ("ru","ua"):
+        return "ru"
+    return lang
 
 # ORIGINAL DISABLED
 #
@@ -882,7 +885,7 @@ async def ref50_handler(message: Message):
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
 
-    total_cycles = active_refs // REQUIRED_ACTIVE_REFS
+    total_cycles = 1 + (active_refs // REQUIRED_ACTIVE_REFS)
     available_cycles = total_cycles - used_cycles
 
     if available_cycles <= 0:
