@@ -881,11 +881,9 @@ async def ref50_handler(message: Message):
     user_id = message.from_user.id
     active_refs = get_active_ref_count(user_id)
     used_cycles = get_ref_withdraw_count(user_id)
+    available_cycles = active_refs // REQUIRED_ACTIVE_REFS
 
-    total_cycles = active_refs // REQUIRED_ACTIVE_REFS
-    available_cycles = total_cycles - used_cycles
-
-    if available_cycles <= 0:
+    if available_cycles <= used_cycles:
         remaining = REQUIRED_ACTIVE_REFS - (active_refs % REQUIRED_ACTIVE_REFS)
         if remaining == REQUIRED_ACTIVE_REFS:
             remaining = REQUIRED_ACTIVE_REFS
@@ -899,21 +897,16 @@ async def ref50_handler(message: Message):
 
     # 🚫 Проверка если уже есть необработанная заявка
     pending = list_new_withdrawals(limit=100)
-    user_has_pending = False
     for wd in pending:
-        if wd[1] == user_id and wd[5] == "new":
-            user_has_pending = True
-            break
-
-    if user_has_pending:
-        await message.answer("⏳ У тебе вже є заявка на виплату, дочекайся обробки.")
-        return
+        if wd[1] == user_id:
+            await message.answer("⏳ У тебе вже є заявка на виплату, дочекайся обробки.")
+            return
 
     user_state[user_id] = "waiting_card"
     await message.answer("💳 Введи номер картки (16 цифр):")
 
 
-@router.message(F.text.regexp(r'^[0-9 ]{12,20}$'))
+@router.message()
 async def handle_card_input(message: Message):
     user_id = message.from_user.id
 
@@ -973,7 +966,7 @@ async def approve_withdraw(call: CallbackQuery):
     user_id = wd[1]
     amount = wd[4]
 
-    add_balance(user_id, -amount)
+    add_balance(user_id, amount)
     increment_ref_withdraw_count(user_id)
     set_withdraw_status(wd_id, "approved")
 
@@ -1046,68 +1039,6 @@ async def admin_setref(message: Message):
     set_manual_refs(tg_id, value)
     await message.answer(f"✅ Встановлено {value} активних рефералів користувачу {tg_id}")
 
-
-@router.message(Command("approve"))
-async def admin_approve_cmd(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) != 2:
-        await message.answer("Використання: /approve ID_заявки")
-        return
-
-    try:
-        wd_id = int(parts[1])
-    except:
-        await message.answer("ID має бути числом.")
-        return
-
-    wd = get_withdraw(wd_id)
-    if not wd:
-        await message.answer("❌ Заявку не знайдено.")
-        return
-
-    user_id = wd[1]
-    amount = wd[4]
-
-    add_balance(user_id, -amount)
-    increment_ref_withdraw_count(user_id)
-    set_withdraw_status(wd_id, "approved")
-
-    await bot.send_message(user_id, "✅ Виплату підтверджено адміністратором.")
-    await message.answer(f"✅ Заявку {wd_id} одобрено.")
-
-
-@router.message(Command("reject"))
-async def admin_reject_cmd(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) != 2:
-        await message.answer("Використання: /reject ID_заявки")
-        return
-
-    try:
-        wd_id = int(parts[1])
-    except:
-        await message.answer("ID має бути числом.")
-        return
-
-    wd = get_withdraw(wd_id)
-    if not wd:
-        await message.answer("❌ Заявку не знайдено.")
-        return
-
-    user_id = wd[1]
-
-    set_withdraw_status(wd_id, "rejected")
-
-    await bot.send_message(user_id, "❌ Адміністратор відхилив заявку на виплату.")
-    await message.answer(f"❌ Заявку {wd_id} відхилено.")
-
-
 # ============ СТАРТ БОТА ============
 
 async def main():
@@ -1120,43 +1051,3 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
-
-
-@router.message(Command("pending"))
-async def pending_cmd(message: Message):
-    if message.from_user.id not in ADMINS:
-        return
-    withdrawals = list_new_withdrawals(limit=20)
-    if not withdrawals:
-        await message.answer("Немає заявок.")
-        return
-    for wd in withdrawals:
-        wd_id = wd[0]
-        user_id = wd[1]
-        amount = wd[3]
-        details = wd[4]
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="✅ Approve", callback_data=f"approve:{wd_id}"),
-            InlineKeyboardButton(text="❌ Reject", callback_data=f"reject:{wd_id}")
-        ]])
-        await message.answer(
-            f"🧾 Заявка #{wd_id}\nUser: {user_id}\nСума: {amount} грн\nКарта: {details}",
-            reply_markup=kb
-        )
-
-
-@router.callback_query(F.data.startswith("approve:"))
-async def approve_wd(call: CallbackQuery):
-    if call.from_user.id not in ADMINS:
-        return
-    wd_id = int(call.data.split(":")[1])
-    approve_withdrawal(wd_id)
-    await call.message.edit_text(f"✅ Заявка {wd_id} одобрена")
-
-@router.callback_query(F.data.startswith("reject:"))
-async def reject_wd(call: CallbackQuery):
-    if call.from_user.id not in ADMINS:
-        return
-    wd_id = int(call.data.split(":")[1])
-    reject_withdrawal(wd_id)
-    await call.message.edit_text(f"❌ Заявка {wd_id} отклонена")
