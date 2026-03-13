@@ -225,7 +225,6 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     b = BUTTONS[lang]
     kb = [
         [KeyboardButton(text=b['profile'])],
-        [KeyboardButton(text="🏦 Кабінет")],
         [KeyboardButton(text=b['invite'])],
         [KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
@@ -479,10 +478,10 @@ async def profile_handler(message: Message):
     active_refs = get_active_ref_count(user_id)
 
     text = (
-        f"💼 <b>Мій профіль</b>"
-        f"🆔 ID: <code>{user_id}</code>"
-        f"💰 Баланс: <b>{balance:.2f} грн</b>"
-        f"👥 Активні реферали: <b>{active_refs}</b>"
+        f"💼 <b>Мій профіль</b>\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"💰 Баланс: <b>{balance:.2f} грн</b>\n"
+        f"👥 Активні реферали: <b>{active_refs}</b>\n\n"
         "Натисніть <b>🏦 Кабінет</b> щоб зробити вивід."
     )
 
