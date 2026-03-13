@@ -941,6 +941,85 @@ async def withdraw_states(message: Message):
 
 
 # =========================
+# ADMIN REF COMMANDS
+# =========================
+
+@router.message(Command("addref"))
+async def admin_addref(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("Использование: /addref user_id количество")
+        return
+
+    try:
+        tg_id = int(parts[1])
+        count = int(parts[2])
+    except:
+        await message.answer("❌ Неверные данные")
+        return
+
+    add_manual_refs(tg_id, count)
+    refs = get_active_ref_count(tg_id)
+
+    await message.answer(
+        f"✅ Добавлено {count} рефералов пользователю {tg_id}\n"
+        f"Теперь всего: {refs}"
+    )
+
+
+@router.message(Command("setref"))
+async def admin_setref(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer("Использование: /setref user_id количество")
+        return
+
+    try:
+        tg_id = int(parts[1])
+        count = int(parts[2])
+    except:
+        await message.answer("❌ Неверные данные")
+        return
+
+    set_manual_refs(tg_id, count)
+
+    await message.answer(
+        f"✅ Пользователю {tg_id} установлено {count} рефералов"
+    )
+
+
+# =========================
+# ADMIN FAKE STATS
+# =========================
+
+@router.message(Command("setstats"))
+async def admin_setstats(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) != 2:
+        await message.answer("Использование: /setstats число")
+        return
+
+    try:
+        value = int(parts[1])
+    except:
+        await message.answer("❌ Нужно число")
+        return
+
+    set_fake_total(value)
+
+    await message.answer(f"📊 Статистика пользователей установлена: {value}")
+
+
+# =========================
 # START BOT
 # =========================
 
