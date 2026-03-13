@@ -225,6 +225,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     b = BUTTONS[lang]
     kb = [
         [KeyboardButton(text=b['profile'])],
+        [KeyboardButton(text="🏦 Кабінет")],
         [KeyboardButton(text=b['invite'])],
         [KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
