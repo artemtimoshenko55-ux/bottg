@@ -938,3 +938,17 @@ async def withdraw_states(message: Message):
         pending_withdraw[user_id] = {}
         return
 
+
+
+# =========================
+# START BOT
+# =========================
+
+async def main():
+    init_db()
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("Bot started...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
