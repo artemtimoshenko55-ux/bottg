@@ -478,10 +478,16 @@ async def profile_handler(message: Message):
     active_refs = get_active_ref_count(user_id)
 
     text = (
-        f"💼 <b>Мій профіль</b>\n\n"
-        f"🆔 ID: <code>{user_id}</code>\n"
-        f"💰 Баланс: <b>{balance:.2f} грн</b>\n"
-        f"👥 Активні реферали: <b>{active_refs}</b>\n\n"
+        f"💼 <b>Мій профіль</b>
+
+"
+        f"🆔 ID: <code>{user_id}</code>
+"
+        f"💰 Баланс: <b>{balance:.2f} грн</b>
+"
+        f"👥 Активні реферали: <b>{active_refs}</b>
+
+"
         "Натисніть <b>🏦 Кабінет</b> щоб зробити вивід."
     )
 
@@ -836,3 +842,81 @@ async def admin_all(message: Message):
     await message.answer(f"📢 Рассылка отправлена <b>{sent}</b> пользователям.")
 
 
+
+
+
+# ============ ВЫВОД СРЕДСТВ ============
+
+@router.message(F.text == "🏦 Кабінет")
+async def withdraw_start(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    balance = get_balance(user_id)
+
+    if balance < MIN_WITHDRAW:
+        await message.answer(
+            f"❌ Мінімальна сума для виводу: <b>{MIN_WITHDRAW} грн</b>\n"
+            f"Ваш баланс: <b>{balance:.2f} грн</b>"
+        )
+        return
+
+    user_state[user_id] = "enter_card"
+    await message.answer("💳 Введіть номер банківської картки:")
+
+
+@router.message()
+async def withdraw_states(message: Message):
+    user_id = message.from_user.id
+
+    if user_id not in user_state:
+        return
+
+    state = user_state[user_id]
+
+    if state == "enter_card":
+        card = message.text.strip()
+
+        pending_withdraw[user_id] = {"card": card}
+        user_state[user_id] = "enter_amount"
+
+        await message.answer("💰 Введіть суму для виводу:")
+        return
+
+    if state == "enter_amount":
+        try:
+            amount = float(message.text.replace(",", "."))
+        except:
+            await message.answer("❌ Невірна сума.")
+            return
+
+        data = pending_withdraw[user_id]
+
+        create_withdrawal(
+            user_id,
+            "card",
+            data["card"],
+            amount
+        )
+
+        await message.answer(
+            "👨‍💻| Ваша заявка на вивід успішно прийнята\n"
+            "🏦| Заявка буде оброблена адміністрацією."
+        )
+
+        user_state.pop(user_id, None)
+        pending_withdraw.pop(user_id, None)
+
+
+# ============ ЗАПУСК БОТА ============
+
+async def main():
+    init_db()
+    print("Bot started...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
