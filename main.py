@@ -478,26 +478,13 @@ async def profile_handler(message: Message):
     active_refs = get_active_ref_count(user_id)
 
     text = (
-        f"💼 <b>Мій профіль</b>
-
-"
-        f"🆔 ID: <code>{user_id}</code>
-"
-        f"💰 Баланс: <b>{balance:.2f} грн</b>
-"
-        f"👥 Активні реферали: <b>{active_refs}</b>
-
-"
-        "Натисніть <b>🏦 Кабінет</b> щоб зробити вивід."
+        f"💼 <b>Мій профіль</b>\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"💰 Баланс: <b>{balance:.2f} грн</b>\n"
+        f"👥 Активні реферали: <b>{active_refs}</b>"
     )
 
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🏦 Кабінет")]],
-        resize_keyboard=True
-    )
-
-    await message.answer(text, reply_markup=kb)
-
+    await message.answer(text)
 
 
 @router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
@@ -845,78 +832,100 @@ async def admin_all(message: Message):
 
 
 
-# ============ ВЫВОД СРЕДСТВ ============
+# ================== 50 ГРН ЗА 10 РЕФЕРАЛОВ ==================
 
-@router.message(F.text == "🏦 Кабінет")
-async def withdraw_start(message: Message):
+@router.message(F.text.in_([BUTTONS["ru"]["ref50"], BUTTONS["ua"]["ref50"]]))
+async def ref_bonus(message: Message):
     if not await ensure_full_access(message):
         return
 
     user_id = message.from_user.id
-    balance = get_balance(user_id)
+    refs = get_active_ref_count(user_id)
 
-    if balance < MIN_WITHDRAW:
-        await message.answer(
-            f"❌ Мінімальна сума для виводу: <b>{MIN_WITHDRAW} грн</b>\n"
-            f"Ваш баланс: <b>{balance:.2f} грн</b>"
-        )
+    if refs < 10:
+        await message.answer(f"❌ Потрібно 10 рефералів. У вас: {refs}/10")
         return
 
-    user_state[user_id] = "enter_card"
-    await message.answer("💳 Введіть номер банківської картки:")
-
-
-@router.message()
-async def withdraw_states(message: Message):
-    user_id = message.from_user.id
-
-    if user_id not in user_state:
+    if get_ref_withdraw_count(user_id) >= 1:
+        await message.answer("❗ Ви вже отримували бонус 50 грн.")
         return
 
-    state = user_state[user_id]
+    add_balance(user_id, 50)
+    increment_ref_withdraw_count(user_id)
 
-    if state == "enter_card":
-        card = message.text.strip()
+    await message.answer("✅ Вам зараховано <b>50 грн</b> за 10 рефералів!")
 
-        pending_withdraw[user_id] = {"card": card}
-        user_state[user_id] = "enter_amount"
 
-        await message.answer("💰 Введіть суму для виводу:")
+# ================== PENDING ВЫПЛАТЫ ==================
+
+@router.message(Command("pending"))
+async def admin_pending(message: Message):
+    if not user_is_admin(message.from_user.id):
         return
 
-    if state == "enter_amount":
-        try:
-            amount = float(message.text.replace(",", "."))
-        except:
-            await message.answer("❌ Невірна сума.")
-            return
+    rows = list_new_withdrawals()
 
-        data = pending_withdraw[user_id]
+    if not rows:
+        await message.answer("❗ Нема нових заявок.")
+        return
 
-        create_withdrawal(
-            user_id,
-            "card",
-            data["card"],
-            amount
+    for wid, user_id, method, wallet, amount, created in rows:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Виплатити", callback_data=f"pay:{wid}"),
+                InlineKeyboardButton(text="❌ Відхилити", callback_data=f"reject:{wid}")
+            ]]
         )
 
-        await message.answer(
-            "👨‍💻| Ваша заявка на вивід успішно прийнята\n"
-            "🏦| Заявка буде оброблена адміністрацією."
+        text = (
+            f"💸 <b>Заявка #{wid}</b>\n"
+            f"👤 User: <code>{user_id}</code>\n"
+            f"💳 Метод: {method}\n"
+            f"📥 Реквізит: <code>{wallet}</code>\n"
+            f"💰 Сума: <b>{amount}</b>"
         )
 
-        user_state.pop(user_id, None)
-        pending_withdraw.pop(user_id, None)
+        await message.answer(text, reply_markup=kb)
 
 
-# ============ ЗАПУСК БОТА ============
+@router.callback_query(F.data.startswith("pay:"))
+async def approve_withdraw(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
 
-async def main():
-    init_db()
-    print("Bot started...")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    wid = int(call.data.split(":")[1])
+    w = get_withdraw(wid)
+
+    if not w:
+        await call.answer("Заявка не знайдена")
+        return
+
+    set_withdraw_status(wid, "paid")
+
+    await call.message.edit_text("✅ Виплату підтверджено")
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@router.callback_query(F.data.startswith("reject:"))
+async def reject_withdraw(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wid = int(call.data.split(":")[1])
+    set_withdraw_status(wid, "rejected")
+
+    await call.message.edit_text("❌ Заявку відхилено")
+
+
+# ================== ПРОСТАЯ ЗАЩИТА ОТ МУЛЬТИАККАУНТОВ ==================
+
+phones_used = set()
+
+@router.message(F.contact)
+async def anti_multi_phone(message: Message):
+    phone = message.contact.phone_number
+
+    if phone in phones_used:
+        await message.answer("❌ Цей номер вже використовувався.")
+        return
+
+    phones_used.add(phone)
