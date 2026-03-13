@@ -225,6 +225,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     b = BUTTONS[lang]
     kb = [
         [KeyboardButton(text=b['profile'])],
+        [KeyboardButton(text="🏦 Кабінет")],
         [KeyboardButton(text=b['invite'])],
         [KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
@@ -929,3 +930,78 @@ async def anti_multi_phone(message: Message):
         return
 
     phones_used.add(phone)
+
+
+
+# ================= ВЫВОД СРЕДСТВ =================
+
+@router.message(F.text == "🏦 Кабінет")
+async def withdraw_start(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    balance = get_balance(user_id)
+
+    if balance < MIN_WITHDRAW:
+        await message.answer(
+            f"❌ Мінімальна сума для виводу: <b>{MIN_WITHDRAW} грн</b>\n"
+            f"Ваш баланс: <b>{balance:.2f} грн</b>"
+        )
+        return
+
+    user_state[user_id] = "card"
+    await message.answer("💳 Введіть номер банківської картки:")
+
+
+@router.message()
+async def withdraw_states(message: Message):
+    user_id = message.from_user.id
+
+    if user_id not in user_state:
+        return
+
+    state = user_state[user_id]
+
+    if state == "card":
+        pending_withdraw[user_id] = {"card": message.text.strip()}
+        user_state[user_id] = "amount"
+        await message.answer("💰 Введіть суму для виводу:")
+        return
+
+    if state == "amount":
+        try:
+            amount=float(message.text.replace(",", "."))
+        except:
+            await message.answer("❌ Невірна сума.")
+            return
+
+        data=pending_withdraw[user_id]
+
+        wid=create_withdrawal(
+            user_id,
+            "card",
+            data["card"],
+            amount
+        )
+
+        await message.answer(
+            f"👨‍💻 Заявка #{wid} створена.\n"
+            "🏦 Очікуйте перевірку адміністрації."
+        )
+
+        user_state.pop(user_id,None)
+        pending_withdraw.pop(user_id,None)
+
+
+
+# ================= ЗАПУСК БОТА =================
+
+async def main():
+    init_db()
+    logging.info("Bot started")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
