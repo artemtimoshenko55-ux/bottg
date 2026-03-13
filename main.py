@@ -883,11 +883,68 @@ async def withdraw_states(message: Message):
 
         wid = create_withdrawal(uid,"card",data["card"],amount)
 
-        await message.answer(f"✅ Заявка #{wid} створена")
+        await message.answer(f"✅ Заявка #{wid} створена", reply_markup=main_keyboard(get_lang(uid)))
 
         user_state.pop(uid,None)
         pending_withdraw.pop(uid,None)
 
+
+
+
+# ================= PENDING ВЫВОДЫ =================
+
+@router.message(Command("pending"))
+async def pending_withdrawals(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    rows = list_new_withdrawals()
+
+    if not rows:
+        await message.answer("❌ Немає нових заявок.")
+        return
+
+    for wid, tg_id, method, details, amount, status, created in rows:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Одобрити", callback_data=f"wd_ok:{wid}"),
+                InlineKeyboardButton(text="❌ Відхилити", callback_data=f"wd_no:{wid}")
+            ]]
+        )
+
+        text = (
+            f"💸 <b>Заявка #{wid}</b>\n"
+            f"👤 ID: <code>{tg_id}</code>\n"
+            f"💳 Метод: {method}\n"
+            f"📄 Реквізит: <code>{details}</code>\n"
+            f"💰 Сума: <b>{amount:.2f} грн</b>"
+        )
+
+        await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("wd_ok:"))
+async def withdraw_approve(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wid = int(call.data.split(":")[1])
+    set_withdraw_status(wid, "paid")
+
+    await call.message.edit_text("✅ Виплату підтверджено")
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("wd_no:"))
+async def withdraw_reject(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wid = int(call.data.split(":")[1])
+    set_withdraw_status(wid, "rejected")
+
+    await call.message.edit_text("❌ Заявку відхилено")
+    await call.answer()
 
 # ================= RUN =================
 
