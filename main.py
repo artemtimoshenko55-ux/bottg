@@ -829,3 +829,112 @@ async def admin_all(message: Message):
     await message.answer(f"📢 Рассылка отправлена <b>{sent}</b> пользователям.")
 
 
+
+
+
+
+# ===============================
+# REFERRAL BONUS 50 UAH (10 REFS)
+# ===============================
+
+@router.message(F.text.in_([BUTTONS["ru"]["ref50"], BUTTONS["ua"]["ref50"]]))
+async def ref_bonus_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+
+    refs = get_active_ref_count(user_id)
+    withdraws = get_ref_withdraw_count(user_id)
+
+    if refs < 10:
+        await message.answer(
+            f"❌ Для отримання 50 грн потрібно 10 активних рефералів\n\n"
+            f"👥 У вас: {refs}/10"
+        )
+        return
+
+    balance = get_balance(user_id)
+
+    if balance >= 50:
+        await message.answer(
+            "❗️ Ви вже отримали кошти на баланс!\n"
+            "Виведіть їх щоб отримати знову"
+        )
+        return
+
+    add_balance(user_id, 50)
+
+    await message.answer(
+        "✅ Вам зараховано <b>50.0 грн</b>!"
+    )
+
+
+# ===============================
+# WITHDRAW CABINET
+# ===============================
+
+@router.message(F.text == "🏦 Кабінет")
+async def cabinet_handler(message: Message):
+    user_id = message.from_user.id
+    balance = get_balance(user_id)
+
+    await message.answer(
+        f"🏦 <b>Кабінет</b>\n\n"
+        f"💰 Баланс: <b>{balance:.2f} грн</b>\n\n"
+        "Введіть номер банківської картки:"
+    )
+
+    user_state[user_id] = "enter_card"
+
+
+@router.message()
+async def withdraw_states(message: Message):
+    user_id = message.from_user.id
+
+    # Ввод карты
+    if user_state.get(user_id) == "enter_card":
+
+        card = message.text.strip()
+
+        if len(card) < 12:
+            await message.answer("❌ Невірний номер картки")
+            return
+
+        pending_withdraw[user_id] = {"card": card}
+
+        await message.answer(
+            "Введіть суму для виводу:"
+        )
+
+        user_state[user_id] = "enter_amount"
+        return
+
+    # Ввод суммы
+    if user_state.get(user_id) == "enter_amount":
+
+        try:
+            amount = float(message.text)
+        except:
+            await message.answer("❌ Невірна сума")
+            return
+
+        data = pending_withdraw.get(user_id)
+
+        wid = create_withdrawal(
+            user_id,
+            "card",
+            data["card"],
+            amount
+        )
+
+        await message.answer(
+            "👨‍💻| Ваша заявка на вивід успішно прийнята\n"
+            "➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+            "🏦| Заявка буде оброблена адміністрацією на протязі 48 годин"
+        )
+
+        user_state[user_id] = None
+        pending_withdraw[user_id] = {}
+        return
+
