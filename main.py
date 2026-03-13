@@ -225,6 +225,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
     b = BUTTONS[lang]
     kb = [
         [KeyboardButton(text=b['profile'])],
+        [KeyboardButton(text="🏦 Кабінет")],
         [KeyboardButton(text=b['invite'])],
         [KeyboardButton(text=b['stats'])],
         [KeyboardButton(text=b['ref50'])],
@@ -484,7 +485,13 @@ async def profile_handler(message: Message):
         f"👥 Активні реферали: <b>{active_refs}</b>"
     )
 
-    await message.answer(text)
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🏦 Кабінет")]],
+        resize_keyboard=True
+    )
+    await message.answer(text + "
+
+Натисніть 🏦 Кабінет щоб зробити вивід.", reply_markup=kb)
 
 
 @router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
@@ -916,7 +923,7 @@ async def withdraw_states(message: Message):
     user_id = message.from_user.id
 
     # allow commands and normal messages if not in withdraw state
-    if user_id not in user_state:
+    if user_id not in user_state or user_state[user_id] is None:
         return
 
     # Ввод карты
