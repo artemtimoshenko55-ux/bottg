@@ -531,6 +531,29 @@ async def top_referrals(message: Message):
 
 # ============ ВЫВОД СРЕДСТВ ============
 
+
+@router.message(F.text.in_([BUTTONS["ru"]["ref50"], BUTTONS["ua"]["ref50"]]))
+async def ref50_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    refs = get_active_ref_count(user_id)
+
+    if refs < 10:
+        await message.answer(f"❌ Потрібно 10 рефералів. У вас {refs}/10")
+        return
+
+    balance = get_balance(user_id)
+
+    if balance >= 50:
+        await message.answer("❗️ Ви вже отримали кошти на баланс! Виведіть їх щоб отримати знову")
+        return
+
+    add_balance(user_id, 50)
+
+    await message.answer("✅ Вам зараховано 50 грн!")
+
 # ============ АДМИН-КОМАНДЫ ============
 
 @router.message(Command("admin"))
@@ -891,6 +914,10 @@ async def cabinet_handler(message: Message):
 @router.message()
 async def withdraw_states(message: Message):
     user_id = message.from_user.id
+
+    # allow commands and normal messages if not in withdraw state
+    if user_id not in user_state:
+        return
 
     # Ввод карты
     if user_state.get(user_id) == "enter_card":
