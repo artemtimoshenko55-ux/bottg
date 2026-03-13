@@ -219,19 +219,19 @@ def user_is_admin(tg_id: int) -> bool:
 
 # ============ КЛАВИАТУРЫ ============
 
-def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
-    if lang not in ('ru','ua'):
-        lang='ru'
+def main_keyboard(lang: str = "ru") -> ReplyKeyboardMarkup:
+    if lang not in ("ru","ua"):
+        lang="ru"
     b = BUTTONS[lang]
     kb = [
-        [KeyboardButton(text=b['profile'])],
-        [KeyboardButton(text=b['invite'])],
-        [KeyboardButton(text=b['stats'])],
-        [KeyboardButton(text=b['ref50'])],
-        [KeyboardButton(text=b['top']),],
-
+        [KeyboardButton(text=b["profile"])],
+        [KeyboardButton(text="🏦 Кабінет")],
+        [KeyboardButton(text=b["invite"])],
+        [KeyboardButton(text=b["stats"])],
+        [KeyboardButton(text=b["ref50"])],
+        [KeyboardButton(text=b["top"])],
     ]
-    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def subscribe_keyboard() -> InlineKeyboardMarkup:
     buttons = []
@@ -455,104 +455,6 @@ async def set_lang_handler(call: CallbackQuery):
 
 # ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
 
-@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
-async def invite_handler(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    bot_info = await bot.get_me()
-    link = f"https://t.me/{bot_info.username}?start={message.from_user.id}"
-
-    await message.answer(
-        f"👥 <b>Твоє реферальне посилання:</b>\n\n{link}"
-    )
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["profile"], BUTTONS["ua"]["profile"]]))
-async def profile_handler(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-    balance = get_balance(user_id)
-    active_refs = get_active_ref_count(user_id)
-
-    text = (
-        f"💼 <b>Мій профіль</b>\n\n"
-        f"🆔 ID: <code>{user_id}</code>\n"
-        f"💰 Баланс: <b>{balance:.2f} грн</b>\n"
-        f"👥 Активні реферали: <b>{active_refs}</b>"
-    )
-
-    await message.answer(text)
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
-async def stats_public(message: Message):
-    s = get_stats()
-    days = get_bot_days_running()
-
-    fake = get_fake_total()
-    total = fake if fake > 0 else s["total_users"]
-
-    text = (
-        "📊 <b>Статистика бота</b>\n\n"
-        f"👥 Користувачів: <b>{total}</b>\n"
-        f""
-        f""
-        f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
-    )
-
-    await message.answer(text)
-
-@router.message(F.text.in_([BUTTONS["ru"]["top"], BUTTONS["ua"]["top"]]))
-async def top_referrals(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    top = get_top_referrers(limit=10)
-    if not top:
-        await message.answer("Пока нет активных рефералов.")
-        return
-
-    lines = ["🏆 <b>Топ рефералов</b>\n"]
-    for i, (ref_id, cnt) in enumerate(top, start=1):
-        name = f"<code>{ref_id}</code>"
-        try:
-            chat = await bot.get_chat(ref_id)
-            if chat.username:
-                name = f"@{chat.username}"
-        except Exception:
-            pass
-        lines.append(f"{i}. {name} — {cnt} активних рефералів")
-
-    await message.answer("\n".join(lines))
-
-
-# ============ ВЫВОД СРЕДСТВ ============
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["ref50"], BUTTONS["ua"]["ref50"]]))
-async def ref50_handler(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-    refs = get_active_ref_count(user_id)
-
-    if refs < 10:
-        await message.answer(f"❌ Потрібно 10 рефералів. У вас {refs}/10")
-        return
-
-    balance = get_balance(user_id)
-
-    if balance >= 50:
-        await message.answer("❗️ Ви вже отримали кошти на баланс! Виведіть їх щоб отримати знову")
-        return
-
-    add_balance(user_id, 50)
-
-    await message.answer("✅ Вам зараховано 50 грн!")
 
 # ============ АДМИН-КОМАНДЫ ============
 
@@ -1044,6 +946,64 @@ async def admin_setstats(message: Message):
     set_fake_total(value)
 
     await message.answer(f"📊 Статистика пользователей установлена: {value}")
+
+
+
+# ================= ADMIN WITHDRAW PENDING =================
+
+@router.message(Command("pending"))
+async def pending(message: Message):
+    if not user_is_admin(message.from_user.id):
+        return
+
+    rows = list_new_withdrawals()
+
+    if not rows:
+        await message.answer("❌ Немає заявок")
+        return
+
+    for wid, uid, method, details, amount, status, created in rows:
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Одобрити", callback_data=f"pay:{wid}"),
+                InlineKeyboardButton(text="❌ Відхилити", callback_data=f"reject:{wid}")
+            ]]
+        )
+
+        text = (
+            f"💸 Заявка #{wid}\n"
+            f"👤 ID: {uid}\n"
+            f"💳 Метод: {method}\n"
+            f"📄 Реквізит: {details}\n"
+            f"💰 Сума: {amount}"
+        )
+
+        await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("pay:"))
+async def pay_withdraw(call: CallbackQuery):
+
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wid = int(call.data.split(":")[1])
+    set_withdraw_status(wid,"paid")
+
+    await call.message.edit_text("✅ Виплата підтверджена")
+
+
+@router.callback_query(F.data.startswith("reject:"))
+async def reject_withdraw(call: CallbackQuery):
+
+    if not user_is_admin(call.from_user.id):
+        return
+
+    wid = int(call.data.split(":")[1])
+    set_withdraw_status(wid,"rejected")
+
+    await call.message.edit_text("❌ Заявка відхилена")
 
 
 # =========================
