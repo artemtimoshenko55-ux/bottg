@@ -645,6 +645,7 @@ async def stats_public(message: Message):
 "
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
+    )
 
     await message.answer(text)
 
