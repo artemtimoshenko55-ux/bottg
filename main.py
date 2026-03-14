@@ -638,11 +638,8 @@ async def stats_public(message: Message):
     total = custom if custom else s["total_users"]
 
     text = (
-        "📊 <b>Статистика бота</b>
-
-"
-        f"👥 Всего пользователей: <b>{total}</b>
-"
+        "📊 <b>Статистика бота</b>"
+        f"👥 Всего пользователей: <b>{total}</b>"
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
 )
@@ -692,8 +689,7 @@ async def top_referrals(message: Message):
         await message.answer("Пока нет активных рефералов.")
         return
 
-    lines = ["🏆 <b>Топ рефералов</b>
-"]
+    lines = ["🏆 <b>Топ рефералов</b>"]
     for i, (ref_id, cnt) in enumerate(top, start=1):
         earned = cnt * REF_BONUS
         name = f"<code>{ref_id}</code>"
@@ -705,8 +701,7 @@ async def top_referrals(message: Message):
             pass
         lines.append(f"{i}. {name} — {cnt} реф. — заработал <b>{fmt_money(earned)}</b>")
 
-    await message.answer("
-".join(lines))
+    await message.answer("".join(lines))
 
 
 
