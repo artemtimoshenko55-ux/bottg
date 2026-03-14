@@ -635,7 +635,7 @@ async def stats_public(message: Message):
 
     custom = get_custom_stat("users")
 
-    total = custom if custom else s["total_users"]
+    total = s["total_users"] + (custom or 0)
 
     text = (
         "📊 <b>Статистика бота</b>\n\n"
