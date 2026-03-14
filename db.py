@@ -44,9 +44,7 @@ def init_db():
             phone TEXT,
             created_at TEXT,
             last_bonus_at TEXT,
-            banned INTEGER DEFAULT 0,
-            ref_withdraw_count INTEGER DEFAULT 0,
-            manual_refs INTEGER DEFAULT 0
+            banned INTEGER DEFAULT 0
         )
         """
     )
@@ -58,8 +56,6 @@ def init_db():
     _ensure_column(cur, "users", "created_at TEXT")
     _ensure_column(cur, "users", "last_bonus_at TEXT")
     _ensure_column(cur, "users", "banned INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "ref_withdraw_count INTEGER DEFAULT 0")
-    _ensure_column(cur, "users", "manual_refs INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance DOUBLE PRECISION DEFAULT 0")
     _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
 
@@ -93,15 +89,6 @@ def init_db():
         """
     )
 
-    # Settings table (fake stats)
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-        """
-    )
     conn.commit()
     conn.close()
 
@@ -537,99 +524,3 @@ def list_users_page(offset: int = 0, limit: int = 50):
     rows = cur.fetchall()
     conn.close()
     return rows
-
-
-# ---------- REF SYSTEM (50 UAH / 10 ACTIVE) ----------
-
-def get_active_ref_count(referrer_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-
-    # real activated referrals
-    cur.execute(
-        "SELECT COUNT(*) FROM users WHERE referrer_id=%s AND activated=1",
-        (referrer_id,),
-    )
-    real = cur.fetchone()[0] or 0
-
-    # manual admin referrals
-    cur.execute(
-        "SELECT COALESCE(manual_refs,0) FROM users WHERE tg_id=%s",
-        (referrer_id,),
-    )
-    row = cur.fetchone()
-    manual = row[0] if row else 0
-
-    conn.close()
-    return int(real + manual)
-
-
-def get_ref_withdraw_count(tg_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT ref_withdraw_count FROM users WHERE tg_id=%s", (tg_id,))
-    row = cur.fetchone()
-    conn.close()
-    return int(row[0]) if row and row[0] else 0
-
-
-def increment_ref_withdraw_count(tg_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET ref_withdraw_count = COALESCE(ref_withdraw_count,0) + 1 WHERE tg_id=%s",
-        (tg_id,),
-    )
-    conn.commit()
-    conn.close()
-
-
-# ---------- SETTINGS (FAKE STATS) ----------
-
-def get_fake_total():
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT value FROM settings WHERE key='fake_total_users'")
-    row = cur.fetchone()
-    conn.close()
-    return int(row[0]) if row and row[0] else 0
-
-
-def set_fake_total(value: int):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO settings (key, value)
-        VALUES ('fake_total_users', %s)
-        ON CONFLICT (key)
-        DO UPDATE SET value = EXCLUDED.value
-        """,
-        (str(value),),
-    )
-    conn.commit()
-    conn.close()
-
-
-# ---------- MANUAL REFERRALS (ADMIN) ----------
-
-def set_manual_refs(tg_id: int, value: int):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET manual_refs=%s WHERE tg_id=%s",
-        (value, tg_id),
-    )
-    conn.commit()
-    conn.close()
-
-
-def add_manual_refs(tg_id: int, count: int):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET manual_refs = COALESCE(manual_refs,0) + %s WHERE tg_id=%s",
-        (count, tg_id),
-    )
-    conn.commit()
-    conn.close()

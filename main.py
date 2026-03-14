@@ -23,6 +23,7 @@ from config import (
     USD_RATE,
     ADMINS,
     BOT_START_DATE,
+    TASKS,
     PAYOUTS_CHANNEL_URL,
 )
 from db import (
@@ -31,7 +32,10 @@ from db import (
     get_user,
     activate_user,
     get_balance,
-    add_balance,    is_banned,
+    add_balance,
+    get_last_bonus_at,
+    set_last_bonus_at,
+    is_banned,
     ban_user,
     unban_user,
     create_withdrawal,
@@ -39,36 +43,21 @@ from db import (
     set_withdraw_status,
     get_stats,
     list_all_users,
-    get_top_referrers,    list_new_withdrawals,
+    get_top_referrers,
+    create_task_submission,
+    get_task_submission,
+    set_task_status,
+    get_last_task_submission,
+    has_any_approved_task,
+    list_new_withdrawals,
     get_language,
     set_language,
     list_users,          # 🔹 ДОБАВИЛ ЭТО
     count_users,
-    get_active_ref_count,
-    get_ref_withdraw_count,
-    increment_ref_withdraw_count,
-    set_manual_refs,
-    add_manual_refs,
-    get_fake_total,
-    set_fake_total,
     list_users_page,
 )
 
 logging.basicConfig(level=logging.INFO)
-
-# ===== GLOBAL ANTI-SPAM =====
-_last_action = {}
-_COOLDOWN = 2
-
-def anti_spam(user_id: int):
-    from datetime import datetime
-    now = datetime.now().timestamp()
-    if user_id in _last_action:
-        if now - _last_action[user_id] < _COOLDOWN:
-            return False
-    _last_action[user_id] = now
-    return True
-
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
@@ -79,32 +68,44 @@ dp.include_router(router)
 user_state: dict[int, str] = {}
 pending_withdraw: dict[int, dict] = {}
 
+task_state: dict[int, str] = {}
+pending_task: dict[int, dict] = {}
 
+DAILY_BONUS = 0.3
+DAILY_HOURS = 24
 
 
 # ============ ЯЗЫКИ (RU/UA) ============
 
 BUTTONS = {
     "ru": {
-        # RU forcibly mapped to UA
-
         "subscribe": "📢 Подписка",
         "profile": "💼 Мой профиль",
-        "invite": "👥 Пригласить друга",        "stats": "📊 Статистика",        "top": "🏆 Топ рефералов",
-        "ref50": "💸 50 грн",
+        "invite": "👥 Пригласить друга",
+        "daily": "🎁 Ежедневный бонус",
+        "stats": "📊 Статистика",
+        "withdraw": "💸 Вывод средств",
+        "tasks": "📝 Задания",
+        "top": "🏆 Топ рефералов",
+        "rules": "📜 Правила",
+        "payouts": "💸 Канал с выплатами",
     },
     "ua": {
         "subscribe": "📢 Підписка",
         "profile": "💼 Мій профіль",
-        "invite": "👥 Запросити друга",        "stats": "📊 Статистика",        "top": "🏆 Топ рефералів",
-        "ref50": "💸 50 грн",
+        "invite": "👥 Запросити друга",
+        "daily": "🎁 Щоденний бонус",
+        "stats": "📊 Статистика",
+        "withdraw": "💸 Виведення коштів",
+        "tasks": "📝 Завдання",
+        "top": "🏆 Топ рефералів",
+        "rules": "📜 Правила",
+        "payouts": "💸 Канал с выплатами",
     },
 }
 
 TEXTS = {
     "ru": {
-        # RU forcibly mapped to UA
-
         "choose_lang": "🌍 Выбери язык / Оберіть мову:",
         "not_sub": "❌ Ты не подписан на обязательные каналы.\nПодпишись и нажми «Проверить подписку».",
         "send_phone": "📱 Отправь корректный номер телефона.\nПоддерживаемые коды: +380, +7, +375.",
@@ -132,10 +133,6 @@ TEXTS = {
 
 
 def get_lang(user_id: int) -> str:
-    return 'ua'
-
-# ORIGINAL DISABLED
-#
     lang = get_language(user_id)
     if lang not in ("ru", "ua", "unset"):
         return "unset"
@@ -165,7 +162,7 @@ notified_channels: set[str] = set()
 # ============ ХЕЛПЕРЫ ============
 
 def fmt_money(amount: float) -> str:
-    return f"{amount:.2f} грн"
+    return f"{amount:.2f} грн (~{amount / USD_RATE:.2f} $)"
 
 
 
@@ -219,19 +216,20 @@ def user_is_admin(tg_id: int) -> bool:
 
 # ============ КЛАВИАТУРЫ ============
 
-def main_keyboard(lang: str = "ru") -> ReplyKeyboardMarkup:
-    if lang not in ("ru","ua"):
-        lang="ru"
+def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
+    if lang not in ('ru','ua'):
+        lang='ru'
     b = BUTTONS[lang]
     kb = [
-        [KeyboardButton(text=b["profile"])],
-        [KeyboardButton(text="🏦 Кабінет")],
-        [KeyboardButton(text=b["invite"])],
-        [KeyboardButton(text=b["stats"])],
-        [KeyboardButton(text=b["ref50"])],
-        [KeyboardButton(text=b["top"])],
+        [KeyboardButton(text=b['profile'])],
+        [KeyboardButton(text=b['invite'])],
+        [KeyboardButton(text=b['daily']), KeyboardButton(text=b['stats'])],
+        [KeyboardButton(text=b['withdraw'])],
+        [KeyboardButton(text=b['tasks'])],
+        [KeyboardButton(text=b['top']), KeyboardButton(text=b['rules'])],
+        [KeyboardButton(text=b['payouts'])],
     ]
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
 
 def subscribe_keyboard() -> InlineKeyboardMarkup:
     buttons = []
@@ -254,6 +252,24 @@ def subscribe_keyboard() -> InlineKeyboardMarkup:
 
 # ============ КАНАЛ С ВЫПЛАТАМИ ============
 
+def payouts_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💸 Перейти в канал выплат", url=PAYOUTS_CHANNEL_URL)]
+        ]
+    )
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["payouts"], BUTTONS["ua"]["payouts"]]))
+async def payouts_channel_button(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    await message.answer(
+        "💸 Все выплаты публикуются в нашем канале 👇",
+        reply_markup=payouts_inline_keyboard(),
+        disable_web_page_preview=True,
+    )
 def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -263,6 +279,22 @@ def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def tasks_menu_keyboard() -> InlineKeyboardMarkup:
+    buttons = []
+    for t in TASKS:
+        buttons.append(
+            [InlineKeyboardButton(text=t["title"], callback_data=f"task:{t['id']}")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def task_actions_keyboard(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📸 Отправить скрин", callback_data=f"task_proof:{task_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад к заданиям", callback_data="tasks_back")],
+        ]
+    )
 
 
 # ============ ПРОВЕРКИ ============
@@ -347,6 +379,69 @@ async def ensure_full_access(message: Message) -> bool:
         return False
 
     return True
+
+
+
+
+async def try_qualify_referral(user_id: int):
+    """Засчитываем реферала ТОЛЬКО если он:
+    1) забрал бонус (есть last_bonus_at)
+    2) выполнил хотя бы 1 задание (есть approved task_submissions)
+
+    Порядок не важен: функцию вызываем и после бонуса, и после approve задания.
+    """
+    try:
+        u = get_user(user_id)
+    except Exception:
+        return
+
+    if not u:
+        return
+
+    # get_user: (tg_id, balance, referrer_id, activated, phone, created_at, last_bonus_at, banned)
+    referrer_id = u[2]
+    activated = int(u[3] or 0)
+
+    # Уже засчитан
+    if activated == 1:
+        return
+
+    # Нет реферера
+    if not referrer_id:
+        return
+
+    # 1) бонус должен быть забран
+    if not get_last_bonus_at(user_id):
+        return
+
+    # 2) хотя бы 1 одобренное задание
+    if not has_any_approved_task(user_id):
+        return
+
+    # Засчитываем реферала: отмечаем activated=1 и начисляем бонус рефереру (один раз)
+    # activate_user вернет referrer_id только при первом засчёте.
+    try:
+        ref = activate_user(user_id)
+    except Exception:
+        return
+
+    if not ref:
+        return
+
+    try:
+        add_balance(ref, REF_BONUS)
+    except Exception:
+        return
+
+    # Уведомление рефереру (не критично)
+    try:
+        await bot.send_message(
+            ref,
+            f"✅ У тебя новый активный реферал: <code>{user_id}</code>\n"
+            f"Начислено: <b>{fmt_money(REF_BONUS)}</b>."
+        )
+    except Exception:
+        pass
 
 
 
@@ -455,62 +550,689 @@ async def set_lang_handler(call: CallbackQuery):
 
 # ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
 
+@router.message(F.text.in_([BUTTONS["ru"]["profile"], BUTTONS["ua"]["profile"]]))
+async def my_profile(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    bal = get_balance(user_id)
+    me = await bot.get_me()
+    ref_link = f"https://t.me/{me.username}?start={user_id}"
+
+    text = (
+        "👤 <b>Твой профиль</b>\n\n"
+        f"💰 Баланс: <b>{fmt_money(bal)}</b>\n"
+                f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
+        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание — "
+        f"ты получаешь <b>{fmt_money(REF_BONUS)}</b>."
+    )
+    await message.answer(text)
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
+async def invite_friend(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    me = await bot.get_me()
+    ref_link = f"https://t.me/{me.username}?start={user_id}"
+
+    await message.answer(
+        "Отправь эту ссылку друзьям:\n"
+        f"<code>{ref_link}</code>\n\n"
+        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание, ты получишь <b>{fmt_money(REF_BONUS)}</b>.",
+    )
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["daily"], BUTTONS["ua"]["daily"]]))
+async def daily_bonus(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    now = datetime.now(timezone.utc)
+    last = get_last_bonus_at(user_id)
+
+    if last:
+        try:
+            last_dt = datetime.fromisoformat(last)
+            delta = now - last_dt
+            if delta.total_seconds() < DAILY_HOURS * 3600:
+                remain = DAILY_HOURS * 3600 - delta.total_seconds()
+                h = int(remain // 3600)
+                m = int((remain % 3600) // 60)
+                await message.answer(
+                    f"⏳ Бонус уже забран.\n"
+                    f"Следующий будет доступен через <b>{h} ч {m} мин</b>."
+                )
+                return
+        except Exception:
+            pass
+
+    add_balance(user_id, DAILY_BONUS)
+    set_last_bonus_at(user_id, now.isoformat())
+    await try_qualify_referral(user_id)
+    bal = get_balance(user_id)
+
+    await message.answer(
+        f"🎁 Ты получил бонус <b>{fmt_money(DAILY_BONUS)}</b>!\n"
+        f"Текущий баланс: <b>{fmt_money(bal)}</b>."
+    )
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
+async def stats_public(message: Message):
+    s = get_stats()
+    days = get_bot_days_running()
+
+    text = (
+        "📊 <b>Статистика бота</b>\n\n"
+        f"👥 Всего пользователей: <b>{s['total_users']}</b>\n"
+        f"🔥 Активированных: <b>{s['activated_users']}</b>\n"
+        f"🆕 Новых за 24 часа: <b>{s['new_24h']}</b>\n"
+        f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
+    )
+    await message.answer(text)
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["rules"], BUTTONS["ua"]["rules"]]))
+async def rules(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    text = (
+        "📜 <b>Правила бота</b>\n\n"
+        "❗ Запрещено:\n"
+        "— Создавать много аккаунтов (мультиаккаунты)\n"
+        "— Использовать фейки и виртуалки\n"
+        "— Отправлять поддельные скрины\n"
+        "— Абузить задания и реферальную систему\n"
+        "— Отписываться от спонсорских каналов после выплат\n\n"
+        "Админ может отклонить выплату или заблокировать аккаунт без объяснения причин.\n\n"
+        "Используя бот, ты автоматически соглашаешься с этими правилами ✅"
+    )
+    await message.answer(text)
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["top"], BUTTONS["ua"]["top"]]))
+async def top_referrals(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    top = get_top_referrers(limit=10)
+    if not top:
+        await message.answer("Пока нет активных рефералов.")
+        return
+
+    lines = ["🏆 <b>Топ рефералов</b>\n"]
+    for i, (ref_id, cnt) in enumerate(top, start=1):
+        earned = cnt * REF_BONUS
+        name = f"<code>{ref_id}</code>"
+        try:
+            chat = await bot.get_chat(ref_id)
+            if chat.username:
+                name = f"@{chat.username}"
+        except Exception:
+            pass
+        lines.append(f"{i}. {name} — {cnt} реф. — заработал <b>{fmt_money(earned)}</b>")
+
+    await message.answer("\n".join(lines))
+
+
+# ============ ЗАДАНИЯ ============
+
+@router.message(F.text.in_([BUTTONS["ru"]["tasks"], BUTTONS["ua"]["tasks"]]))
+async def tasks_menu_handler(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    if not TASKS:
+        await message.answer("Пока нет доступных заданий.")
+        return
+
+    text = "📝 <b>Доступные задания</b>:\n\n"
+    for t in TASKS:
+        text += f"• {t['title']} — <b>{fmt_money(t['price'])}</b>\n"
+
+    text += (
+        "\nЕсли хотите добавить СВОЁ задание в бот — пишите сюда: @Bassss6\n\n"
+        "Выбери задание из списка ниже 👇"
+    )
+
+    await message.answer(text, reply_markup=tasks_menu_keyboard())
+
+
+@router.callback_query(F.data == "tasks_back")
+async def tasks_back(call: CallbackQuery):
+    await tasks_menu_handler(call.message)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("task:"))
+async def open_task(call: CallbackQuery):
+    task_id = call.data.split(":", 1)[1]
+    t = get_task_by_id(task_id)
+    if not t:
+        await call.answer("Задание не найдено", show_alert=True)
+        return
+
+    last = get_last_task_submission(call.from_user.id, task_id)
+    if last and last[1] in ("pending", "approved"):
+        await call.message.answer("❌ Ты уже выполнял это задание или оно на проверке.")
+        await call.answer()
+        return
+
+    text = (
+        f"🔸 <b>{t['title']}</b>\n\n"
+        f"Награда: <b>{fmt_money(t['price'])}</b>\n\n"
+        f"{t['instructions']}"
+    )
+    await call.message.answer(text, reply_markup=task_actions_keyboard(task_id))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("task_proof:"))
+async def task_proof_start(call: CallbackQuery):
+    task_id = call.data.split(":", 1)[1]
+    t = get_task_by_id(task_id)
+    if not t:
+        await call.answer("Задание не найдено", show_alert=True)
+        return
+
+    user_id = call.from_user.id
+    last = get_last_task_submission(user_id, task_id)
+    if last and last[1] in ("pending", "approved"):
+        await call.message.answer("❌ Ты уже выполнял это задание или оно на проверке.")
+        await call.answer()
+        return
+
+    task_state[user_id] = "waiting_proof"
+    pending_task[user_id] = {"task_id": task_id}
+
+    await call.message.answer("📸 Отправь скрин выполнения задания одним фото.")
+    await call.answer()
+
+
+@router.message(F.photo)
+async def handle_task_photo(message: Message):
+    user_id = message.from_user.id
+    if task_state.get(user_id) != "waiting_proof":
+        return
+
+    if not await ensure_full_access(message):
+        task_state.pop(user_id, None)
+        pending_task.pop(user_id, None)
+        return
+
+    data = pending_task.get(user_id)
+    if not data or "task_id" not in data:
+        await message.answer("Ошибка состояния. Попробуй открыть задание заново.")
+        task_state.pop(user_id, None)
+        pending_task.pop(user_id, None)
+        return
+
+    task_id = data["task_id"]
+    t = get_task_by_id(task_id)
+    if not t:
+        await message.answer("Задание не найдено. Попробуй позже.")
+        task_state.pop(user_id, None)
+        pending_task.pop(user_id, None)
+        return
+
+    file_id = message.photo[-1].file_id
+    caption = message.caption or ""
+
+    sub_id = create_task_submission(user_id, task_id, file_id, caption)
+
+    await message.answer(
+        "✅ Скрин отправлен на проверку.\n"
+        "После проверки админом ты получишь уведомление."
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✔️ Принять", callback_data=f"task_ok:{sub_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"task_no:{sub_id}"),
+            ]
+        ]
+    )
+
+    for adm in ADMINS:
+        try:
+            await bot.send_photo(
+                adm,
+                photo=file_id,
+                caption=(
+                    f"📝 <b>Новая заявка по заданию</b>\n"
+                    f"ID заявки: <code>{sub_id}</code>\n"
+                    f"Задание: <b>{t['title']}</b>\n"
+                    f"Пользователь: <code>{user_id}</code>\n\n"
+                    f"Комментарий юзера:\n{caption or '—'}"
+                ),
+                reply_markup=kb,
+            )
+        except Exception:
+            pass
+
+    task_state.pop(user_id, None)
+    pending_task.pop(user_id, None)
+
+
+@router.callback_query(F.data.startswith("task_ok:"))
+async def task_ok(call: CallbackQuery):
+    if call.from_user.id not in ADMINS:
+        await call.answer("Не админ", show_alert=True)
+        return
+
+    sub_id = int(call.data.split(":", 1)[1])
+    sub = get_task_submission(sub_id)
+    if not sub:
+        await call.answer("Заявка не найдена", show_alert=True)
+        return
+
+    tg_id = sub[1]
+    task_id = sub[2]
+    status = sub[3]
+
+    if status == "approved":
+        await call.answer("Уже одобрено", show_alert=True)
+        return
+    if status == "rejected":
+        await call.answer("Уже отклонено", show_alert=True)
+        return
+
+    t = get_task_by_id(task_id)
+    if not t:
+        await call.answer("Задание не найдено", show_alert=True)
+        return
+
+    set_task_status(sub_id, "approved")
+    add_balance(tg_id, t["price"])
+
+    # Проверяем, не стал ли реферал "активным" (бонус + 1 задание)
+    await try_qualify_referral(tg_id)
+
+    try:
+        await call.message.edit_caption(
+            (call.message.caption or "") + "\n\n✔️ <b>Одобрено админом</b>"
+        )
+    except Exception:
+        try:
+            await call.message.edit_text(
+                (call.message.text or "") + "\n\n✔️ <b>Одобрено админом</b>"
+            )
+        except Exception:
+            pass
+
+    await call.answer("Принято")
+
+    try:
+        await bot.send_message(
+            tg_id,
+            f"🎉 Задание <b>{t['title']}</b> одобрено!\n"
+            f"Тебе начислено: <b>{fmt_money(t['price'])}</b>."
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("task_no:"))
+async def task_no(call: CallbackQuery):
+    if call.from_user.id not in ADMINS:
+        await call.answer("Не админ", show_alert=True)
+        return
+
+    sub_id = int(call.data.split(":", 1)[1])
+    sub = get_task_submission(sub_id)
+    if not sub:
+        await call.answer("Заявка не найдена", show_alert=True)
+        return
+
+    tg_id = sub[1]
+    status = sub[3]
+
+    if status == "approved":
+        await call.answer("Уже одобрено", show_alert=True)
+        return
+    if status == "rejected":
+        await call.answer("Уже отклонено", show_alert=True)
+        return
+
+    set_task_status(sub_id, "rejected")
+
+    try:
+        await call.message.edit_caption(
+            (call.message.caption or "") + "\n\n❌ <b>Отклонено админом</b>"
+        )
+    except Exception:
+        try:
+            await call.message.edit_text(
+                (call.message.text or "") + "\n\n❌ <b>Отклонено админом</b>"
+            )
+        except Exception:
+            pass
+
+    await call.answer("Отклонено")
+
+    try:
+        await bot.send_message(
+            tg_id,
+            "❌ Твоя заявка по заданию была отклонена админом."
+        )
+    except Exception:
+        pass
+
+
+# ============ ВЫВОД СРЕДСТВ ============
+
+@router.message(F.text.in_([BUTTONS["ru"]["withdraw"], BUTTONS["ua"]["withdraw"]]))
+async def start_withdraw(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    user_id = message.from_user.id
+    bal = get_balance(user_id)
+
+    if bal < MIN_WITHDRAW:
+        await message.answer(
+            f"Минимальная сумма для вывода — <b>{fmt_money(MIN_WITHDRAW)}</b>.\n"
+            f"Твой баланс: <b>{fmt_money(bal)}</b>."
+        )
+        return
+
+    await message.answer(
+        f"На балансе: <b>{fmt_money(bal)}</b>\n"
+        "Выбери способ вывода 👇",
+        reply_markup=withdraw_method_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("wd_method:"))
+async def choose_withdraw_method(call: CallbackQuery):
+    user_id = call.from_user.id
+
+    if is_banned(user_id):
+        await call.message.answer("🚫 Ты заблокирован в боте.")
+        await call.answer()
+        return
+
+    if not await is_subscribed(user_id):
+        await call.message.answer(
+            "❌ Ты не подписан на обязательные каналы.",
+            reply_markup=subscribe_keyboard(),
+        )
+        await call.answer()
+        return
+
+    method = call.data.split(":", 1)[1]
+    bal = get_balance(user_id)
+
+    if bal < MIN_WITHDRAW:
+        await call.message.answer(
+            f"Минимальная сумма для вывода — <b>{fmt_money(MIN_WITHDRAW)}</b>.\n"
+            f"Твой баланс: <b>{fmt_money(bal)}</b>."
+        )
+        await call.answer()
+        return
+
+    pending_withdraw[user_id] = {"method": method}
+    user_state[user_id] = "waiting_amount"
+
+    await call.message.answer(
+        f"Баланс: <b>{fmt_money(bal)}</b>\n"
+        f"Введи сумму для вывода (от {fmt_money(MIN_WITHDRAW)}):"
+    )
+    await call.answer()
+
+
+@router.message(lambda m: user_state.get(m.from_user.id) is not None)
+async def withdraw_states(message: Message):
+    user_id = message.from_user.id
+    state = user_state.get(user_id)
+    text = (message.text or "").strip()
+
+    if not await ensure_full_access(message):
+        user_state.pop(user_id, None)
+        pending_withdraw.pop(user_id, None)
+        return
+
+    if state == "waiting_amount":
+        try:
+            amount = float(text.replace(",", "."))
+        except ValueError:
+            await message.answer("❌ Введи сумму числом, например 50 или 75.5")
+            return
+
+        bal = get_balance(user_id)
+        if amount < MIN_WITHDRAW:
+            await message.answer(
+                f"Минимальная сумма для вывода — <b>{fmt_money(MIN_WITHDRAW)}</b>."
+            )
+            return
+        if amount > bal:
+            await message.answer(
+                f"❌ Недостаточно средств.\nТвой баланс: <b>{fmt_money(bal)}</b>."
+            )
+            return
+
+        pending_withdraw.setdefault(user_id, {})
+        pending_withdraw[user_id]["amount"] = amount
+
+        method = pending_withdraw[user_id].get("method")
+        if method == "card":
+            user_state[user_id] = "waiting_card"
+            await message.answer("Введи номер карты (16 цифр, можно с пробелами):")
+        elif method == "crypto":
+            user_state[user_id] = "waiting_crypto"
+            await message.answer("Введи данные для вывода на криптобот:")
+        else:
+            await message.answer("Ошибка состояния. Попробуй начать вывод заново.")
+            user_state.pop(user_id, None)
+            pending_withdraw.pop(user_id, None)
+
+        return
+
+    if state == "waiting_card":
+        card_raw = text.replace(" ", "")
+        if not card_raw.isdigit() or len(card_raw) != 16:
+            await message.answer("❌ Номер карты должен содержать 16 цифр.")
+            return
+
+        data = pending_withdraw.get(user_id)
+        if not data or "amount" not in data:
+            await message.answer("Ошибка состояния. Попробуй снова начать вывод.")
+            user_state.pop(user_id, None)
+            pending_withdraw.pop(user_id, None)
+            return
+
+        amount = data["amount"]
+        add_balance(user_id, -amount)
+
+        wd_id = create_withdrawal(user_id, "card", card_raw, amount)
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✔️ Одобрить", callback_data=f"wd_ok:{wd_id}"),
+                    InlineKeyboardButton(text="❌ Отклонить", callback_data=f"wd_no:{wd_id}"),
+                ]
+            ]
+        )
+
+        await message.answer(
+            f"🔄 Заявка на вывод <b>{fmt_money(amount)}</b> отправлена админу!\n"
+            f"ID: <code>{wd_id}</code>"
+        )
+
+        for adm in ADMINS:
+            try:
+                await bot.send_message(
+                    adm,
+                    f"💸 <b>Новая заявка на вывод</b>\n"
+                    f"ID: {wd_id}\n"
+                    f"Пользователь: <code>{user_id}</code>\n"
+                    f"Метод: карта\n"
+                    f"Карта: <code>{card_raw}</code>\n"
+                    f"Сумма: <b>{fmt_money(amount)}</b>",
+                    reply_markup=kb,
+                )
+            except Exception:
+                pass
+
+        user_state.pop(user_id, None)
+        pending_withdraw.pop(user_id, None)
+        return
+
+    if state == "waiting_crypto":
+        details = text.strip()
+        if len(details) < 5:
+            await message.answer("❌ Введи корректные данные для криптобота.")
+            return
+
+        data = pending_withdraw.get(user_id)
+        if not data or "amount" not in data:
+            await message.answer("Ошибка состояния. Попробуй снова начать вывод.")
+            user_state.pop(user_id, None)
+            pending_withdraw.pop(user_id, None)
+            return
+
+        amount = data["amount"]
+        add_balance(user_id, -amount)
+
+        wd_id = create_withdrawal(user_id, "crypto", details, amount)
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✔️ Одобрить", callback_data=f"wd_ok:{wd_id}"),
+                    InlineKeyboardButton(text="❌ Отклонить", callback_data=f"wd_no:{wd_id}"),
+                ]
+            ]
+        )
+
+        await message.answer(
+            f"🔄 Заявка на вывод <b>{fmt_money(amount)}</b> отправлена админу!\n"
+            f"ID: <code>{wd_id}</code>"
+        )
+
+        for adm in ADMINS:
+            try:
+                await bot.send_message(
+                    adm,
+                    f"💸 <b>Новая заявка на вывод</b>\n"
+                    f"ID: {wd_id}\n"
+                    f"Пользователь: <code>{user_id}</code>\n"
+                    f"Метод: криптобот\n"
+                    f"Реквизиты: <code>{details}</code>\n"
+                    f"Сумма: <b>{fmt_money(amount)}</b>",
+                    reply_markup=kb,
+                )
+            except Exception:
+                pass
+
+        user_state.pop(user_id, None)
+        pending_withdraw.pop(user_id, None)
+        return
+
+
+@router.callback_query(F.data.startswith("wd_ok:"))
+async def wd_ok(call: CallbackQuery):
+    if call.from_user.id not in ADMINS:
+        await call.answer("Не админ", show_alert=True)
+        return
+
+    wd_id = int(call.data.split(":", 1)[1])
+    wd = get_withdraw(wd_id)
+    if not wd:
+        await call.answer("❌ Заявка не найдена", show_alert=True)
+        return
+
+    set_withdraw_status(wd_id, "approved")
+
+    tg_id = wd[1]
+    amount = wd[4]
+
+    await call.answer("✔️ Выплата одобрена")
+    try:
+        await call.message.edit_text(f"✔️ Выплата подтверждена (ID {wd_id})")
+    except Exception:
+        pass
+
+    try:
+        await bot.send_message(
+            tg_id,
+            f"🎉 Твоя выплата <b>{fmt_money(amount)}</b> одобрена и скоро будет отправлена!"
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("wd_no:"))
+async def wd_no(call: CallbackQuery):
+    if call.from_user.id not in ADMINS:
+        await call.answer("Не админ", show_alert=True)
+        return
+
+    wd_id = int(call.data.split(":", 1)[1])
+    wd = get_withdraw(wd_id)
+    if not wd:
+        await call.answer("❌ Заявка не найдена", show_alert=True)
+        return
+
+    tg_id = wd[1]
+    amount = wd[4]
+
+    set_withdraw_status(wd_id, "rejected")
+
+    await call.answer("❌ Выплата отклонена")
+    try:
+        await call.message.edit_text(f"❌ Выплата отклонена (ID {wd_id})")
+    except Exception:
+        pass
+
+    try:
+        await bot.send_message(
+            tg_id,
+            "❌ Твоя заявка на вывод была отклонена администрацией.\n"
+            "<i>Средства не возвращаются.</i>"
+        )
+    except Exception:
+        pass
+
 
 # ============ АДМИН-КОМАНДЫ ============
 
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
+    """Главное админ-меню /admin"""
     if not user_is_admin(message.from_user.id):
         return
 
     s = get_stats()
-    days = get_bot_days_running()
-
-    fake = get_fake_total()
-    total = fake if fake > 0 else s["total_users"]
+    days = (datetime.now(timezone.utc).date() - datetime.strptime(BOT_START_DATE, "%d.%m.%Y").date()).days
 
     text = (
         "<b>Админ-панель</b>\n\n"
-        f"👥 Користувачів: <b>{total}</b>\n"
-        f"📱 С телефоном: <b>{s['with_phone']}</b>\n"
+        f"👥 Всего пользователей: <b>{s['total_users']}</b>\n"
+        f"✅ Активировано: <b>{s['activated_users']}</b>\n"
+        f"📱 С привязанным телефоном: <b>{s['with_phone']}</b>\n"
         f"⛔ Забанено: <b>{s['banned_users']}</b>\n"
-        f""
-        f"📅 Работает: <b>{days} дней</b>\n\n"
+        f"🆕 Новых за 24 часа: <b>{s['new_24h']}</b>\n"
+        f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})\n\n"
         "Команды:\n"
-        "/users\n"
-        "/ban id\n"
-        "/unban id\n"
-        "/addbal id сумма\n"
-        "/subbal id сумма\n"
-        "/msg id текст\n"
-        "/all текст\n"
-        "/pending\n"
+        "/users — список пользователей\n"
+        "/ban id — бан\n"
+        "/unban id — разбан\n"
+        "/addbal id сумма — добавить баланс\n"
+        "/subbal id сумма — снять баланс\n"
+        "/msg id текст — написать пользователю\n"
+        "/all текст — рассылка всем\n"
+        "/pending — новые заявки на вывод\n"
     )
-
     await message.answer(text)
-
-
-
-
-@router.message(Command("setstats"))
-async def set_stats(message: Message):
-    if not user_is_admin(message.from_user.id):
-        await message.answer("❌ Нет доступа.")
-        return
-
-    parts = message.text.split()
-    if len(parts) != 2:
-        await message.answer("Использование: /setstats 5000")
-        return
-
-    try:
-        value = int(parts[1])
-        if value < 0:
-            value = 0
-        set_fake_total(value)
-        await message.answer(f"✅ Статистика установлена: {value}")
-    except ValueError:
-        await message.answer("❌ Нужно указать число.")
 
 
 @router.message(Command("users"))
@@ -754,267 +1476,43 @@ async def admin_all(message: Message):
     await message.answer(f"📢 Рассылка отправлена <b>{sent}</b> пользователям.")
 
 
-
-
-
-
-# ===============================
-# REFERRAL BONUS 50 UAH (10 REFS)
-# ===============================
-
-@router.message(F.text.in_([BUTTONS["ru"]["ref50"], BUTTONS["ua"]["ref50"]]))
-async def ref_bonus_handler(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
-
-    refs = get_active_ref_count(user_id)
-    withdraws = get_ref_withdraw_count(user_id)
-
-    if refs < 10:
-        await message.answer(
-            f"❌ Для отримання 50 грн потрібно 10 активних рефералів\n\n"
-            f"👥 У вас: {refs}/10"
-        )
-        return
-
-    balance = get_balance(user_id)
-
-    if balance >= 50:
-        await message.answer(
-            "❗️ Ви вже отримали кошти на баланс!\n"
-            "Виведіть їх щоб отримати знову"
-        )
-        return
-
-    add_balance(user_id, 50)
-
-    await message.answer(
-        "✅ Вам зараховано <b>50.0 грн</b>!"
-    )
-
-
-# ===============================
-# WITHDRAW CABINET
-# ===============================
-
-@router.message(F.text == "🏦 Кабінет")
-async def cabinet_handler(message: Message):
-    user_id = message.from_user.id
-    balance = get_balance(user_id)
-
-    await message.answer(
-        f"🏦 <b>Кабінет</b>\n\n"
-        f"💰 Баланс: <b>{balance:.2f} грн</b>\n\n"
-        "Введіть номер банківської картки:"
-    )
-
-    user_state[user_id] = "enter_card"
-
-
-@router.message()
-async def withdraw_states(message: Message):
-    user_id = message.from_user.id
-
-    # allow commands and normal messages if not in withdraw state
-    if user_id not in user_state:
-        return
-
-    # Ввод карты
-    if user_state.get(user_id) == "enter_card":
-
-        card = message.text.strip()
-
-        if len(card) < 12:
-            await message.answer("❌ Невірний номер картки")
-            return
-
-        pending_withdraw[user_id] = {"card": card}
-
-        await message.answer(
-            "Введіть суму для виводу:"
-        )
-
-        user_state[user_id] = "enter_amount"
-        return
-
-    # Ввод суммы
-    if user_state.get(user_id) == "enter_amount":
-
-        try:
-            amount = float(message.text)
-        except:
-            await message.answer("❌ Невірна сума")
-            return
-
-        data = pending_withdraw.get(user_id)
-
-        wid = create_withdrawal(
-            user_id,
-            "card",
-            data["card"],
-            amount
-        )
-
-        await message.answer(
-            "👨‍💻| Ваша заявка на вивід успішно прийнята\n"
-            "➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
-            "🏦| Заявка буде оброблена адміністрацією на протязі 48 годин"
-        )
-
-        user_state[user_id] = None
-        pending_withdraw[user_id] = {}
-        return
-
-
-
-# =========================
-# ADMIN REF COMMANDS
-# =========================
-
-@router.message(Command("addref"))
-async def admin_addref(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) != 3:
-        await message.answer("Использование: /addref user_id количество")
-        return
-
-    try:
-        tg_id = int(parts[1])
-        count = int(parts[2])
-    except:
-        await message.answer("❌ Неверные данные")
-        return
-
-    add_manual_refs(tg_id, count)
-    refs = get_active_ref_count(tg_id)
-
-    await message.answer(
-        f"✅ Добавлено {count} рефералов пользователю {tg_id}\n"
-        f"Теперь всего: {refs}"
-    )
-
-
-@router.message(Command("setref"))
-async def admin_setref(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) != 3:
-        await message.answer("Использование: /setref user_id количество")
-        return
-
-    try:
-        tg_id = int(parts[1])
-        count = int(parts[2])
-    except:
-        await message.answer("❌ Неверные данные")
-        return
-
-    set_manual_refs(tg_id, count)
-
-    await message.answer(
-        f"✅ Пользователю {tg_id} установлено {count} рефералов"
-    )
-
-
-# =========================
-# ADMIN FAKE STATS
-# =========================
-
-@router.message(Command("setstats"))
-async def admin_setstats(message: Message):
-    if not user_is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-    if len(parts) != 2:
-        await message.answer("Использование: /setstats число")
-        return
-
-    try:
-        value = int(parts[1])
-    except:
-        await message.answer("❌ Нужно число")
-        return
-
-    set_fake_total(value)
-
-    await message.answer(f"📊 Статистика пользователей установлена: {value}")
-
-
-
-# ================= ADMIN WITHDRAW PENDING =================
-
 @router.message(Command("pending"))
-async def pending(message: Message):
+async def admin_pending(message: Message):
+    """
+    /pending — показать новые (не обработанные) заявки на вывод
+    """
     if not user_is_admin(message.from_user.id):
         return
 
-    rows = list_new_withdrawals()
-
-    if not rows:
-        await message.answer("❌ Немає заявок")
+    wds = list_new_withdrawals(limit=30)
+    if not wds:
+        await message.answer("🧾 Новых заявок на вывод нет.")
         return
 
-    for wid, uid, method, details, amount, status, created in rows:
-
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[[
-                InlineKeyboardButton(text="✅ Одобрити", callback_data=f"pay:{wid}"),
-                InlineKeyboardButton(text="❌ Відхилити", callback_data=f"reject:{wid}")
-            ]]
+    lines = ["🧾 <b>Новые заявки на вывод:</b>"]
+    for wd in wds:
+        wd_id, tg_id, method, details, amount, status, created_at = wd
+        lines.append(
+            f"\nID: <code>{wd_id}</code>\n"
+            f"👤 Пользователь: <code>{tg_id}</code>\n"
+            f"💰 Сумма: <b>{amount:.2f} грн</b>\n"
+            f"📦 Метод: <b>{method}</b>\n"
+            f"📄 Детали: {details}\n"
+            f"⏰ Создано: {created_at}\n"
         )
 
-        text = (
-            f"💸 Заявка #{wid}\n"
-            f"👤 ID: {uid}\n"
-            f"💳 Метод: {method}\n"
-            f"📄 Реквізит: {details}\n"
-            f"💰 Сума: {amount}"
-        )
-
-        await message.answer(text, reply_markup=kb)
+    lines.append("\nℹ️ Обрабатывай заявки через кнопки под сообщениями бота с заявками.")
+    await message.answer("\n".join(lines))
 
 
-@router.callback_query(F.data.startswith("pay:"))
-async def pay_withdraw(call: CallbackQuery):
 
-    if not user_is_admin(call.from_user.id):
-        return
-
-    wid = int(call.data.split(":")[1])
-    set_withdraw_status(wid,"paid")
-
-    await call.message.edit_text("✅ Виплата підтверджена")
-
-
-@router.callback_query(F.data.startswith("reject:"))
-async def reject_withdraw(call: CallbackQuery):
-
-    if not user_is_admin(call.from_user.id):
-        return
-
-    wid = int(call.data.split(":")[1])
-    set_withdraw_status(wid,"rejected")
-
-    await call.message.edit_text("❌ Заявка відхилена")
-
-
-# =========================
-# START BOT
-# =========================
+# ============ СТАРТ БОТА ============
 
 async def main():
     init_db()
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Bot started...")
+    print("BOT STARTED")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
