@@ -27,6 +27,10 @@ from config import (
     PAYOUTS_CHANNEL_URL,
 )
 from db import (
+    add_fake_refs,
+    get_fake_refs,
+    set_custom_stat,
+    get_custom_stat,
     init_db,
     create_user,
     get_user,
@@ -661,7 +665,18 @@ async def top_referrals(message: Message):
     if not await ensure_full_access(message):
         return
 
-    top = get_top_referrers(limit=10)
+    real = get_top_referrers(limit=10)
+    fake = get_fake_refs()
+
+    top_dict = {}
+
+    for ref,cnt in real:
+        top_dict[ref] = top_dict.get(ref,0) + cnt
+
+    for ref,cnt in fake:
+        top_dict[ref] = top_dict.get(ref,0) + cnt
+
+    top = sorted(top_dict.items(), key=lambda x: x[1], reverse=True)[:10]
     if not top:
         await message.answer("Пока нет активных рефералов.")
         return
@@ -1516,3 +1531,46 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# ===== НАКРУТКА РЕФЕРАЛОВ =====
+
+@router.message(Command("addref"))
+async def admin_addref(message: Message):
+
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 3:
+        await message.answer("Использование: /addref id количество")
+        return
+
+    tg_id = int(parts[1])
+    amount = int(parts[2])
+
+    add_fake_refs(tg_id, amount)
+
+    await message.answer(f"Добавлено {amount} рефералов пользователю {tg_id}")
+
+
+# ===== ИЗМЕНЕНИЕ СТАТИСТИКИ =====
+
+@router.message(Command("setusers"))
+async def admin_set_users(message: Message):
+
+    if not user_is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 2:
+        await message.answer("Использование: /setusers число")
+        return
+
+    value = int(parts[1])
+
+    set_custom_stat("users", value)
+
+    await message.answer(f"Статистика пользователей установлена: {value}")
