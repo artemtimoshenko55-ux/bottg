@@ -670,7 +670,7 @@ async def top_referrals(message: Message):
     if not await ensure_full_access(message):
         return
 
-    real = get_top_referrers(limit=10)
+    real = get_top_referrers(limit=100000)
     fake = get_fake_refs()
 
     top_dict = {}
