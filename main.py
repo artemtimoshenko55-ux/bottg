@@ -642,10 +642,8 @@ async def stats_public(message: Message):
         f"👥 Всего пользователей: <b>{total}</b>"
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
-)
 
     await message.answer(text)
-
 
 
 @router.message(F.text.in_([BUTTONS["ru"]["rules"], BUTTONS["ua"]["rules"]]))
