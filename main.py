@@ -645,7 +645,7 @@ async def stats_public(message: Message):
 "
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
-    )
+)
 
     await message.answer(text)
 
@@ -675,25 +675,25 @@ async def top_referrals(message: Message):
     if not await ensure_full_access(message):
         return
 
-    
-real = get_top_referrers(limit=10)
-fake = get_fake_refs()
+    real = get_top_referrers(limit=10)
+    fake = get_fake_refs()
 
-top_dict = {}
+    top_dict = {}
 
-for ref,cnt in real:
-    top_dict[ref] = top_dict.get(ref,0) + cnt
+    for ref, cnt in real:
+        top_dict[ref] = top_dict.get(ref, 0) + cnt
 
-for ref,cnt in fake:
-    top_dict[ref] = top_dict.get(ref,0) + cnt
+    for ref, cnt in fake:
+        top_dict[ref] = top_dict.get(ref, 0) + cnt
 
-top = sorted(top_dict.items(), key=lambda x: x[1], reverse=True)[:10]
+    top = sorted(top_dict.items(), key=lambda x: x[1], reverse=True)[:10]
 
     if not top:
         await message.answer("Пока нет активных рефералов.")
         return
 
-    lines = ["🏆 <b>Топ рефералов</b>\n"]
+    lines = ["🏆 <b>Топ рефералов</b>
+"]
     for i, (ref_id, cnt) in enumerate(top, start=1):
         earned = cnt * REF_BONUS
         name = f"<code>{ref_id}</code>"
@@ -705,7 +705,9 @@ top = sorted(top_dict.items(), key=lambda x: x[1], reverse=True)[:10]
             pass
         lines.append(f"{i}. {name} — {cnt} реф. — заработал <b>{fmt_money(earned)}</b>")
 
-    await message.answer("\n".join(lines))
+    await message.answer("
+".join(lines))
+
 
 
 # ============ ЗАДАНИЯ ============
