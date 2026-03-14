@@ -638,8 +638,8 @@ async def stats_public(message: Message):
     total = custom if custom else s["total_users"]
 
     text = (
-        "📊 <b>Статистика бота</b>"
-        f"👥 Всего пользователей: <b>{total}</b>"
+        "📊 <b>Статистика бота</b>\n\n"
+        f"👥 Всего пользователей: <b>{total}</b>\n"
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
 
@@ -699,7 +699,7 @@ async def top_referrals(message: Message):
             pass
         lines.append(f"{i}. {name} — {cnt} реф. — заработал <b>{fmt_money(earned)}</b>")
 
-    await message.answer("".join(lines))
+    await message.answer("\n".join(lines))
 
 
 
@@ -1530,16 +1530,6 @@ async def admin_pending(message: Message):
 
 # ============ СТАРТ БОТА ============
 
-async def main():
-    init_db()
-    print("BOT STARTED")
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
-
 # ===== ADMIN FAKE REFS =====
 
 @router.message(Command("addref"))
@@ -1579,3 +1569,15 @@ async def admin_setusers(message: Message):
     set_custom_stat("users", value)
 
     await message.answer(f"Статистика пользователей установлена: {value}")
+
+
+async def main():
+    init_db()
+    print("BOT STARTED")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+
