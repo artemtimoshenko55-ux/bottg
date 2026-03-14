@@ -627,18 +627,27 @@ async def daily_bonus(message: Message):
 
 
 @router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
+
 async def stats_public(message: Message):
+
     s = get_stats()
     days = get_bot_days_running()
 
+    custom = get_custom_stat("users")
+
+    total = custom if custom else s["total_users"]
+
     text = (
-        "📊 <b>Статистика бота</b>\n\n"
-        f"👥 Всего пользователей: <b>{s['total_users']}</b>\n"
-        f"🔥 Активированных: <b>{s['activated_users']}</b>\n"
-        f"🆕 Новых за 24 часа: <b>{s['new_24h']}</b>\n"
+        "📊 <b>Статистика бота</b>
+
+"
+        f"👥 Всего пользователей: <b>{total}</b>
+"
         f"📅 Бот работает: <b>{days} дн.</b> (с {BOT_START_DATE})"
     )
+
     await message.answer(text)
+
 
 
 @router.message(F.text.in_([BUTTONS["ru"]["rules"], BUTTONS["ua"]["rules"]]))
@@ -665,18 +674,20 @@ async def top_referrals(message: Message):
     if not await ensure_full_access(message):
         return
 
-    real = get_top_referrers(limit=10)
-    fake = get_fake_refs()
+    
+real = get_top_referrers(limit=10)
+fake = get_fake_refs()
 
-    top_dict = {}
+top_dict = {}
 
-    for ref,cnt in real:
-        top_dict[ref] = top_dict.get(ref,0) + cnt
+for ref,cnt in real:
+    top_dict[ref] = top_dict.get(ref,0) + cnt
 
-    for ref,cnt in fake:
-        top_dict[ref] = top_dict.get(ref,0) + cnt
+for ref,cnt in fake:
+    top_dict[ref] = top_dict.get(ref,0) + cnt
 
-    top = sorted(top_dict.items(), key=lambda x: x[1], reverse=True)[:10]
+top = sorted(top_dict.items(), key=lambda x: x[1], reverse=True)[:10]
+
     if not top:
         await message.answer("Пока нет активных рефералов.")
         return
@@ -1533,7 +1544,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
-# ===== НАКРУТКА РЕФЕРАЛОВ =====
+# ===== ADMIN FAKE REFS =====
 
 @router.message(Command("addref"))
 async def admin_addref(message: Message):
@@ -1555,10 +1566,8 @@ async def admin_addref(message: Message):
     await message.answer(f"Добавлено {amount} рефералов пользователю {tg_id}")
 
 
-# ===== ИЗМЕНЕНИЕ СТАТИСТИКИ =====
-
 @router.message(Command("setusers"))
-async def admin_set_users(message: Message):
+async def admin_setusers(message: Message):
 
     if not user_is_admin(message.from_user.id):
         return

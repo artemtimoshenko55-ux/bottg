@@ -89,6 +89,27 @@ def init_db():
         """
     )
 
+    
+    # Таблица фейковых рефералов
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fake_refs (
+            tg_id BIGINT PRIMARY KEY,
+            refs INTEGER DEFAULT 0
+        )
+        """
+    )
+
+    # Таблица кастомной статистики
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS custom_stats (
+            name TEXT PRIMARY KEY,
+            value INTEGER
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -526,25 +547,20 @@ def list_users_page(offset: int = 0, limit: int = 50):
     return rows
 
 
-# ===== FAKE REFS / CUSTOM STATS =====
+# ===== FAKE REFS =====
 
 def add_fake_refs(tg_id: int, amount: int):
     conn = _get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS fake_refs (
-            tg_id BIGINT PRIMARY KEY,
-            refs INTEGER DEFAULT 0
-        )
-    """)
-
-    cur.execute("""
+    cur.execute(
+        """
         INSERT INTO fake_refs (tg_id, refs)
-        VALUES (%s, %s)
+        VALUES (%s,%s)
         ON CONFLICT (tg_id)
         DO UPDATE SET refs = fake_refs.refs + %s
-    """, (tg_id, amount, amount))
+        """
+    ,(tg_id,amount,amount))
 
     conn.commit()
     conn.close()
@@ -554,33 +570,35 @@ def get_fake_refs():
     conn = _get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT tg_id, refs FROM fake_refs
-        ORDER BY refs DESC
-    """)
+    try:
+        cur.execute(
+            """
+            SELECT tg_id, refs FROM fake_refs
+            ORDER BY refs DESC
+            """
+        )
+        rows = cur.fetchall()
+    except Exception:
+        rows = []
 
-    rows = cur.fetchall()
     conn.close()
     return rows
 
+
+# ===== CUSTOM STATS =====
 
 def set_custom_stat(name: str, value: int):
     conn = _get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS custom_stats (
-            name TEXT PRIMARY KEY,
-            value INTEGER
-        )
-    """)
-
-    cur.execute("""
+    cur.execute(
+        """
         INSERT INTO custom_stats (name,value)
         VALUES (%s,%s)
         ON CONFLICT (name)
         DO UPDATE SET value=%s
-    """,(name,value,value))
+        """
+    ,(name,value,value))
 
     conn.commit()
     conn.close()
@@ -590,15 +608,20 @@ def get_custom_stat(name: str):
     conn = _get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT value FROM custom_stats
-        WHERE name=%s
-    """,(name,))
+    try:
+        cur.execute(
+            """
+            SELECT value FROM custom_stats WHERE name=%s
+            """
+        ,(name,))
 
-    row = cur.fetchone()
+        row = cur.fetchone()
+        conn.close()
+
+        if row:
+            return row[0]
+    except Exception:
+        pass
+
     conn.close()
-
-    if row:
-        return row[0]
-
     return None
