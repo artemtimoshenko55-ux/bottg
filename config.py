@@ -4,7 +4,7 @@
 BOT_TOKEN = "8712345064:AAEiFqfEM6Do4a7JT5WdUjtVTfDsSKi_7HU"
 
 # Каналы для обязательной подписки (можно без @ или с @, или полной ссылкой)
-REQUIRED_CHANNELS = [-1001323807807]
+REQUIRED_CHANNELS = ["-1001323807807"]
 
 PRIVATE_CHANNELS = {
     "-1001860574110": "https://t.me/+k-NOcOYCQek1NWQy",
