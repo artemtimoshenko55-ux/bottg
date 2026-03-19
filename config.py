@@ -30,6 +30,20 @@ BOT_START_DATE = "19.02.2026"
 USD_RATE = 40.0  # 1$ ≈ 40 грн
 
 # Задания
-TASKS = []
+TASKS = [
+    {
+    "id": "bot_task_1",
+    "title": "🤖 Перейти в бота",
+    "price": 1.0,
+    "instructions": (
+        "📌 Перейди в бота по ссылке ниже 👇\n\n"
+        "🔗 https://t.me/patrickstarsrobot?start=1428837532\n\n"
+        "🎁 Нажми /start и выполни любое действие в боте.\n\n"
+        "📸 После этого сделай скрин и отправь его сюда.\n\n"
+        "💰 Награда: <b>1 грн</b>"
+    ),
+}
+
+]
 
 PAYOUTS_CHANNEL_URL = "https://t.me/+rOCpnMGI2_A5MzUy"
