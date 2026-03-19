@@ -452,7 +452,10 @@ def get_stats():
     banned_users = cur.fetchone()[0]
 
     point = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    cur.execute("SELECT COUNT(*) FROM users WHERE created_at > %s", (point,))
+    cur.execute("""
+        SELECT COUNT(*) FROM users 
+        WHERE created_at::timestamp > %s
+    """, (point,))
     new_24h = cur.fetchone()[0]
 
     conn.close()

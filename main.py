@@ -419,8 +419,6 @@ async def try_qualify_referral(user_id: int):
         return
 
     # 2) хотя бы 1 одобренное задание
-    if not has_any_approved_task(user_id):
-        return
 
     # Засчитываем реферала: отмечаем activated=1 и начисляем бонус рефереру (один раз)
     # activate_user вернет referrer_id только при первом засчёте.
