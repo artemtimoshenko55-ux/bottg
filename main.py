@@ -717,7 +717,7 @@ async def tasks_menu_handler(message: Message):
         text += f"• {t['title']} — <b>{fmt_money(t['price'])}</b>\n"
 
     text += (
-        "\nЕсли хотите добавить СВОЁ задание в бот — пишите сюда: @Bassss6\n\n"
+        "\nЕсли хотите добавить СВОЁ задание в бот — пишите сюда: @Supproteasymoneyy_bot\n\n"
         "Выбери задание из списка ниже 👇"
     )
 
